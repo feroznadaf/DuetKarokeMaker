@@ -1,0 +1,4 @@
+# Legacy dependencies for optional offline WhisperX AI transcription (requires CUDA / PyTorch)
+gradio>=4.0.0
+whisperx
+pysubs2

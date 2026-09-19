@@ -4,14 +4,21 @@ import sys
 import platform
 import subprocess
 import tempfile
-import torch
-import whisperx
-import gradio as gr
+try:
+    import torch
+    import whisperx
+    import gradio as gr
+    GRADIO_AVAILABLE = True
+except ImportError:
+    GRADIO_AVAILABLE = False
+    torch = None
+    whisperx = None
+    gr = None
 
 # ==========================================
 # 1. HARDWARE & FONT CONFIGURATION
 # ==========================================
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda" if (torch and torch.cuda.is_available()) else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 SAMPLE_RATE = 16000
 
@@ -374,38 +381,66 @@ def process_song(audio_path, manual_lyrics, font_size, color_1, color_2, color_3
 # ==========================================
 # 4. USER INTERFACE
 # ==========================================
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue")) as demo:
-    gr.Markdown(
-        """
-        # 🎵 Duet Karaoke Maker (Anti-Overlap 5-Section Layout)
-        Upload your song, paste your timings, and choose your colors.
-        Tag your lyrics with `[1]`, `[2]`, or `[3]` to apply your chosen sweep colors!
-        """
-    )
-    with gr.Row():
-        with gr.Column(scale=1):
-            audio_input = gr.Audio(label="1. Upload Song File (MP3 / WAV)", type="filepath")
-            font_size_input = gr.Slider(minimum=40, maximum=180, value=85, step=1, label="2. Adjust Font Size")
+demo = None
+if GRADIO_AVAILABLE:
+    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue")) as demo:
+        gr.Markdown(
+            """
+            # 🎵 Duet Karaoke Maker (Anti-Overlap 5-Section Layout)
+            Upload your song, paste your timings, and choose your colors.
+            Tag your lyrics with `[1]`, `[2]`, or `[3]` to apply your chosen sweep colors!
+            """
+        )
+        with gr.Row():
+            with gr.Column(scale=1):
+                audio_input = gr.Audio(label="1. Upload Song File (MP3 / WAV)", type="filepath")
+                font_size_input = gr.Slider(minimum=40, maximum=180, value=85, step=1, label="2. Adjust Font Size")
 
-            with gr.Row():
-                color_1_input = gr.ColorPicker(value="#00FFFF", label="[1] Color (e.g. Male)")
-                color_2_input = gr.ColorPicker(value="#FF00FF", label="[2] Color (e.g. Female)")
-                color_3_input = gr.ColorPicker(value="#FFFF00", label="[3] Color (e.g. Both)")
+                with gr.Row():
+                    color_1_input = gr.ColorPicker(value="#00FFFF", label="[1] Color (e.g. Male)")
+                    color_2_input = gr.ColorPicker(value="#FF00FF", label="[2] Color (e.g. Female)")
+                    color_3_input = gr.ColorPicker(value="#FFFF00", label="[3] Color (e.g. Both)")
 
-            lyrics_input = gr.Textbox(
-                label="3. Strict Timestamp Lyrics with Color Tags",
-                lines=10,
-                placeholder="[1] [00:00 - 00:10] Male singing line\n\n00:00:24.000,00:00:26.560\n[2] Female singing line\n\n[3] [00:30 - 00:35] Both singing together"
-            )
-            generate_btn = gr.Button("✨ Generate Lyrical Video", variant="primary", size="lg")
+                lyrics_input = gr.Textbox(
+                    label="3. Strict Timestamp Lyrics with Color Tags",
+                    lines=10,
+                    placeholder="[1] [00:00 - 00:10] Male singing line\n\n00:00:24.000,00:00:26.560\n[2] Female singing line\n\n[3] [00:30 - 00:35] Both singing together"
+                )
+                generate_btn = gr.Button("✨ Generate Lyrical Video", variant="primary", size="lg")
 
-        with gr.Column(scale=1):
-            video_output = gr.Video(label="Final Video Output")
+            with gr.Column(scale=1):
+                video_output = gr.Video(label="Final Video Output")
 
-    generate_btn.click(
-        fn=process_song,
-        inputs=[audio_input, lyrics_input, font_size_input, color_1_input, color_2_input, color_3_input],
-        outputs=[video_output]
-    )
+        generate_btn.click(
+            fn=process_song,
+            inputs=[audio_input, lyrics_input, font_size_input, color_1_input, color_2_input, color_3_input],
+            outputs=[video_output]
+        )
 
-demo.launch(inbrowser=True)
+# =======================================================
+# Top-level exports for Vercel / WSGI / Serverless runtime
+# =======================================================
+try:
+    from server import KaraokeHandler
+    handler = KaraokeHandler
+    app = KaraokeHandler
+    application = KaraokeHandler
+except Exception:
+    from http.server import BaseHTTPRequestHandler
+    class FallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Duet Karaoke Maker")
+    handler = FallbackHandler
+    app = FallbackHandler
+    application = FallbackHandler
+
+if __name__ == "__main__":
+    if GRADIO_AVAILABLE and demo is not None:
+        demo.launch(inbrowser=True)
+    else:
+        print("Gradio / WhisperX dependencies are not installed.")
+        print("To run the modern lightweight web studio (20MB RAM), run:")
+        print("    node server.js   OR   python server.py")

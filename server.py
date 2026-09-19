@@ -51,7 +51,9 @@ def check_ffmpeg():
 
 class KaraokeHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
+        if "directory" not in kwargs:
+            kwargs["directory"] = PUBLIC_DIR
+        super().__init__(*args, **kwargs)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -238,6 +240,13 @@ class KaraokeHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_error(404, "Unknown endpoint")
+
+# =======================================================
+# Top-level exports for Vercel / WSGI / Serverless runtime
+# =======================================================
+handler = KaraokeHandler
+app = KaraokeHandler
+application = KaraokeHandler
 
 if __name__ == "__main__":
     server_address = ("127.0.0.1", PORT)
