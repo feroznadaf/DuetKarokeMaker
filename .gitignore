@@ -1,0 +1,21 @@
+# Operating System Files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Temporary & Output Files
+temp/
+*.tmp
+*.log
+*.webm
+*.mp4
+!public/
+!assets/
+
+# Python & Node
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+node_modules/
+.npm
