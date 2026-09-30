@@ -104,15 +104,18 @@ body {
 }
 
 .badge-lite {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: rgba(0, 255, 255, 0.12);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  background: rgba(0, 255, 255, 0.1);
   color: #00ffff;
-  padding: 2px 8px;
+  padding: 2px 10px;
   border-radius: 20px;
-  border: 1px solid rgba(0, 255, 255, 0.25);
+  border: 1px solid rgba(0, 255, 255, 0.28);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .header-status {
