@@ -33,10 +33,6 @@
           <span class="status-dot green"></span>
           <span class="chip-text" id="engine-status">Browser Engine Ready</span>
         </div>
-        <button class="btn btn-secondary btn-sm" id="btn-load-sample" title="Load sample duet song with lyrics">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          Load Sample Song
-        </button>
       </div>
     </header>
 
@@ -49,32 +45,63 @@
         <div class="panel-section">
           <div class="section-title-row">
             <span class="step-num">1</span>
-            <h2>Audio Track</h2>
-            <span class="hint-text">YouTube Link or Local Audio</span>
+            <h2>1-Click Magic Duet Studio</h2>
+            <span class="detected-lang-badge" id="detected-lang-badge" style="display: none;">🌐 Language: Auto</span>
           </div>
 
-          <!-- YouTube Link to Duet AI Importer -->
-          <div class="youtube-importer-card" id="youtube-importer-card">
-            <div class="yt-header-row">
-              <div class="yt-title-group">
-                <span class="yt-icon">🔴</span>
-                <strong>YouTube Duet Auto-Generator</strong>
-              </div>
+          <!-- 1-Click Auto-Pilot Duet Hero Studio -->
+          <div class="autopilot-hero-card" id="autopilot-hero-card">
+            <div class="autopilot-badge-row">
+              <span class="autopilot-badge">✨ 1-CLICK FULL AUTO-PILOT</span>
               <button type="button" class="yt-toggle-key-btn" id="btn-toggle-yt-key" title="Configure Gemini AI Key">
                 <span>🔑 AI Key (Optional)</span>
               </button>
             </div>
-            
-            <p class="yt-desc">Paste any YouTube music video link to auto-extract audio, detect language, and classify Male vs. Female vocals into duet timestamps.</p>
 
-            <div class="yt-input-group">
-              <input type="text" id="yt-url-input" class="yt-input" placeholder="Paste YouTube Link (e.g. https://youtu.be/...)" autocomplete="off">
-              <button type="button" id="btn-fetch-yt" class="btn btn-yt-fetch">
-                <span>🪄 Auto-Generate</span>
-              </button>
+            <p class="autopilot-desc">
+              Provide any song (Upload MP3/WAV or paste YouTube link) — AI automatically detects singing language, separates Male [1] vs. Female [2] vs. Duet [3] vocals, aligns timestamps, and encodes the complete 1080p Video in one continuous go!
+            </p>
+
+            <!-- Dual Source Tabs -->
+            <div class="autopilot-source-tabs">
+              <button type="button" class="source-tab active" id="tab-src-file">📁 Upload Audio Song</button>
+              <button type="button" class="source-tab" id="tab-src-yt">🔴 YouTube Link</button>
             </div>
 
-            <!-- Optional Collapsible API Key Config -->
+            <!-- Pane A: Local Audio Dropzone -->
+            <div class="source-pane active" id="pane-src-file">
+              <div class="dropzone" id="audio-dropzone">
+                <input type="file" id="audio-file-input" accept="audio/*" class="file-input-hidden">
+                <div class="dropzone-content" id="dropzone-prompt">
+                  <div class="upload-icon">
+                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                  </div>
+                  <p class="dropzone-text"><strong>Click to select song</strong> or drag & drop</p>
+                  <span class="dropzone-sub">MP3, WAV, M4A, FLAC, OGG supported</span>
+                </div>
+
+                <div class="audio-loaded-card" id="audio-loaded-card" style="display: none;">
+                  <div class="audio-meta">
+                    <span class="audio-name" id="audio-filename">song.mp3</span>
+                    <span class="audio-duration" id="audio-duration">00:00</span>
+                  </div>
+                  <button class="btn-icon" id="btn-remove-audio" title="Change Audio">✕</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pane B: YouTube Link Input -->
+            <div class="source-pane" id="pane-src-yt">
+              <div class="yt-input-group">
+                <input type="text" id="yt-url-input" class="yt-input" placeholder="Paste YouTube Link (e.g. https://youtu.be/...)" autocomplete="off">
+              </div>
+            </div>
+
+            <!-- Optional Collapsible API Key Drawer -->
             <div class="yt-key-drawer" id="yt-key-drawer" style="display: none;">
               <div class="yt-key-inner">
                 <div class="yt-key-label-row">
@@ -82,41 +109,54 @@
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" class="yt-key-link">Get Free Key ↗</a>
                 </div>
                 <input type="password" id="yt-api-key" class="yt-key-input" placeholder="AIzaSy... (Saved in your browser)">
-                <span class="yt-key-hint">Without an API key, it uses YouTube's synced subtitles as fallback.</span>
+                <span class="yt-key-hint">Without an API key, it uses synced lyrics databases or captions as fallback.</span>
               </div>
             </div>
 
-            <!-- Progress & Status Row -->
-            <div class="yt-status-box" id="yt-status-box" style="display: none;">
-              <div class="yt-spinner" id="yt-spinner"></div>
-              <span id="yt-status-text">Downloading audio stream from YouTube...</span>
-            </div>
-          </div>
-
-          <div class="or-divider">
-            <span>OR UPLOAD LOCAL AUDIO</span>
-          </div>
-
-          <div class="dropzone" id="audio-dropzone">
-            <input type="file" id="audio-file-input" accept="audio/*" class="file-input-hidden">
-            <div class="dropzone-content" id="dropzone-prompt">
-              <div class="upload-icon">
-                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-              </div>
-              <p class="dropzone-text"><strong>Click to select song</strong> or drag & drop</p>
-              <span class="dropzone-sub">Loads instantly into local memory</span>
+            <!-- Options Row -->
+            <div class="autopilot-options-row">
+              <label class="autopilot-check-label">
+                <input type="checkbox" id="chk-auto-render-video" checked>
+                <span>⚡ Auto-render 1080p Video in one go (Hands-Free)</span>
+              </label>
             </div>
 
-            <div class="audio-loaded-card" id="audio-loaded-card" style="display: none;">
-              <div class="audio-meta">
-                <span class="audio-name" id="audio-filename">song.mp3</span>
-                <span class="audio-duration" id="audio-duration">00:00</span>
+            <!-- Big Action Button -->
+            <button type="button" id="btn-run-autopilot" class="btn btn-autopilot">
+              <span>🚀 1-Click Auto Duet: Lyrics + Voices + Video</span>
+            </button>
+
+            <!-- Animated Multi-Step Pipeline Tracker -->
+            <div class="autopilot-stepper" id="autopilot-stepper" style="display: none;">
+              <div class="stepper-header">
+                <span id="stepper-status-title">🚀 Initializing AI Auto-Pilot...</span>
+                <span id="stepper-pct-label">0%</span>
               </div>
-              <button class="btn-icon" id="btn-remove-audio" title="Change Audio">✕</button>
+              <div class="stepper-bar-track">
+                <div class="stepper-bar-fill" id="stepper-bar-fill"></div>
+              </div>
+              <div class="stepper-items-list">
+                <div class="stepper-item" id="step-item-1">
+                  <span class="stepper-icon">🎵</span>
+                  <span id="step-text-1">1. Audio Ingestion & Stream Decoding</span>
+                </div>
+                <div class="stepper-item" id="step-item-2">
+                  <span class="stepper-icon">🧠</span>
+                  <span id="step-text-2">2. AI Voice Diarization (Detecting Language & Male/Female Separation)</span>
+                </div>
+                <div class="stepper-item" id="step-item-3">
+                  <span class="stepper-icon">📝</span>
+                  <span id="step-text-3">3. Anti-Overlap 5-Section Layout & Word Sweeps</span>
+                </div>
+                <div class="stepper-item" id="step-item-4">
+                  <span class="stepper-icon">🎬</span>
+                  <span id="step-text-4">4. Auto-Rendering 1080p Universal MP4 Video</span>
+                </div>
+                <div class="stepper-item" id="step-item-5">
+                  <span class="stepper-icon">🎉</span>
+                  <span id="step-text-5">5. Finished! Ready to Play & Download</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -137,44 +177,6 @@
                 <option value="1.0" selected>1.0x</option>
                 <option value="1.25">1.25x</option>
               </select>
-            </div>
-          </div>
-
-          <!-- Real-Time Vocal Remover (Option A: Web Audio DSP) -->
-          <div class="vocal-remover-card" id="vocal-remover-card">
-            <div class="vr-main-row">
-              <div class="vr-info">
-                <div class="vr-badge-title">
-                  <span class="vr-icon">🎙️</span>
-                  <strong>Vocal Remover / Karaoke Filter</strong>
-                  <span class="vr-status-badge" id="vr-status-badge">ORIGINAL</span>
-                </div>
-                <p class="vr-desc">Instant real-time center vocal cancellation with low-end bass preservation.</p>
-              </div>
-              <div class="vr-toggle-wrap">
-                <label class="toggle-switch" title="Toggle Karaoke Vocal Remover">
-                  <input type="checkbox" id="chk-vocal-cut">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Expandable slider & bass controls -->
-            <div class="vr-details" id="vr-details" style="display: none;">
-              <div class="vr-control-item">
-                <div class="vr-label-row">
-                  <span>Vocal Cut Intensity:</span>
-                  <span class="vr-val-text" id="vr-intensity-val">100%</span>
-                </div>
-                <input type="range" id="vr-intensity-slider" min="10" max="100" value="100" class="vr-range">
-              </div>
-              <div class="vr-control-item-row">
-                <label class="vr-checkbox-label" title="Preserves low-end kick and bassline frequencies">
-                  <input type="checkbox" id="chk-bass-preserve" checked>
-                  <span>🔊 Bass Preservation (Keep Kick & Bass)</span>
-                </label>
-                <button type="button" class="btn-preset-reset" id="btn-vr-reset" title="Reset to default 100% Karaoke">Reset</button>
-              </div>
             </div>
           </div>
         </div>
@@ -341,7 +343,6 @@
                   <span class="compat-tag">👁️ Plays & Renders Live</span>
                   <span class="compat-tag">📱 Universal (iPhone, Android, Tab, PC, TV)</span>
                   <span class="compat-tag">⬇ Download Button Appears on Finish</span>
-                  <span class="compat-tag" id="export-audio-mode-tag">🎙️ Audio: Original Track</span>
                 </div>
               </div>
               <button class="btn btn-primary btn-lg" id="btn-render-live">

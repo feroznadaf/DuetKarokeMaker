@@ -31,26 +31,118 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-// Find FFmpeg executable path
+// Universal H.264 High 4.1 + AAC + Faststart encoding preset (100% playable on Mobile, TV, PC, WhatsApp)
+const UNIVERSAL_MP4_ARGS = [
+  '-c:v', 'libx264',
+  '-preset', 'veryfast',
+  '-profile:v', 'high',
+  '-level', '4.1',
+  '-pix_fmt', 'yuv420p',
+  '-c:a', 'aac',
+  '-b:a', '192k',
+  '-ar', '44100',
+  '-ac', '2',
+  '-movflags', '+faststart'
+];
+
+// ==========================================
+// 1. REUSABLE UTILITIES & RESPONSE HELPERS (DRY)
+// ==========================================
+
+const sendJson = (res, statusCode, data) => {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(JSON.stringify(data));
+};
+
+const sendError = (res, statusCode, message, details = null) => {
+  sendJson(res, statusCode, {
+    status: 'error',
+    error: message,
+    message,
+    ...(details ? { details } : {})
+  });
+};
+
+const generateJobId = (prefix = 'job') =>
+  `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+const decodeBase64Payload = (dataUriOrBase64) => {
+  const cleanBase64 = dataUriOrBase64.replace(/^data:[a-zA-Z0-9\/\-+.]+;base64,/, '');
+  return Buffer.from(cleanBase64, 'base64');
+};
+
+const escapeAssPath = (filePath) => {
+  let normalized = filePath.replace(/\\/g, '/');
+  if (process.platform === 'win32') {
+    normalized = normalized.replace(/:/g, '\\:');
+  }
+  return normalized;
+};
+
+const cleanFiles = (...filePaths) => {
+  for (const fp of filePaths) {
+    if (fp) {
+      try {
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      } catch (_) {}
+    }
+  }
+};
+
+// Promise-based process runner with automated temp file cleanup
+const execProcess = (cmd, args, { tempFilesToClean = [] } = {}) => {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args);
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', chunk => { stdout += chunk.toString(); });
+    child.stderr?.on('data', chunk => { stderr += chunk.toString(); });
+
+    child.on('close', code => {
+      cleanFiles(...tempFilesToClean);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const error = new Error(`Process exited with code ${code}`);
+        error.code = code;
+        error.stderr = stderr;
+        error.stdout = stdout;
+        reject(error);
+      }
+    });
+
+    child.on('error', err => {
+      cleanFiles(...tempFilesToClean);
+      reject(err);
+    });
+  });
+};
+
+// ==========================================
+// 2. FFMPEG DETECTION (CACHED)
+// ==========================================
 let resolvedFFmpeg = null;
 
 function getFFmpegPath() {
   if (resolvedFFmpeg && fs.existsSync(resolvedFFmpeg)) return resolvedFFmpeg;
 
-  // 1. Try PATH
+  // 1. Check system PATH
   try {
     const cmd = process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg';
-    const out = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split('\r\n')[0].split('\n')[0].trim();
+    const out = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split(/\r?\n/)[0].trim();
     if (out && fs.existsSync(out)) {
       resolvedFFmpeg = out;
       return resolvedFFmpeg;
     }
-  } catch (e) {}
+  } catch (_) {}
 
-  // 2. Try Windows WinGet packages directory directly
+  // 2. Check Windows WinGet packages directory directly
   if (process.platform === 'win32') {
-    const localApp = process.env.LOCALAPPDATA || '';
-    const wingetPkg = path.join(localApp, 'Microsoft', 'WinGet', 'Packages');
+    const wingetPkg = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Packages');
     if (fs.existsSync(wingetPkg)) {
       try {
         const dirs = fs.readdirSync(wingetPkg);
@@ -67,45 +159,69 @@ function getFFmpegPath() {
             }
           }
         }
-      } catch (e) {}
+      } catch (_) {}
     }
   }
 
   return null;
 }
 
-function checkFFmpeg() {
-  return getFFmpegPath() !== null;
-}
+const checkFFmpeg = () => getFFmpegPath() !== null;
 
-// Parse request body JSON
-function parseJsonBody(req) {
+// ==========================================
+// 3. REQUEST BODY PARSING (DRY)
+// ==========================================
+const parseJsonBody = (req) => {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', chunk => {
       data += chunk;
-      // Protect memory on 4GB RAM laptop: limit body to 150MB
+      // Protect memory on 4GB RAM systems: cap body at 150MB
       if (data.length > 150 * 1024 * 1024) {
         req.destroy();
-        reject(new Error('Payload too large'));
+        reject(new Error('Payload too large (150MB limit)'));
       }
     });
     req.on('end', () => {
       try {
         resolve(data ? JSON.parse(data) : {});
       } catch (err) {
-        reject(err);
+        reject(new Error('Invalid JSON payload'));
       }
     });
     req.on('error', reject);
   });
-}
+};
 
+// ==========================================
+// 4. STATIC FILE HANDLER
+// ==========================================
+const serveStatic = (res, pathname) => {
+  let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
+  if (safePath === '/' || safePath === '\\') {
+    safePath = fs.existsSync(path.join(PUBLIC_DIR, 'index.html')) ? '/index.html' : '/studio.html';
+  }
+
+  const filePath = path.join(PUBLIC_DIR, safePath);
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': contentType });
+    fs.createReadStream(filePath).pipe(res);
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
+    res.end('<h1>404 Not Found</h1><p>Duet Karaoke Maker web asset not found.</p>');
+  }
+};
+
+// ==========================================
+// 5. HTTP SERVER & API ROUTING
+// ==========================================
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
-  const pathname = parsedUrl.pathname;
+  const { pathname } = parsedUrl;
 
-  // CORS headers for local flexibility
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -116,58 +232,61 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // API: Status check
+  // --- API: Status check ---
   if (pathname === '/api/status' && req.method === 'GET') {
     const ffmpegPath = getFFmpegPath();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    return sendJson(res, 200, {
       status: 'ok',
       ffmpegAvailable: ffmpegPath !== null,
-      ffmpegPath: ffmpegPath,
+      ffmpegPath,
       nodeVersion: process.version,
       platform: process.platform,
       arch: process.arch,
       tempDir: TEMP_DIR
-    }));
-    return;
+    });
   }
 
-  // API: Render with FFmpeg (server-side)
+  // --- API: Server-side FFmpeg Subtitle Video Render ---
   if (pathname === '/api/render-ffmpeg' && req.method === 'POST') {
     if (!checkFFmpeg()) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        error: 'FFmpeg is not installed in system PATH. Use in-browser rendering or install FFmpeg via install_ffmpeg.bat.'
-      }));
-      return;
+      return sendError(res, 400, 'FFmpeg is not installed in system PATH. Use in-browser rendering or install FFmpeg via install_ffmpeg.bat.');
     }
 
     try {
       const body = await parseJsonBody(req);
-      const { audioBase64, audioExt, assContent, resolution } = body;
+      const { audioBase64, audioExt, assContent, serverAudioFile } = body;
 
-      if (!audioBase64 || !assContent) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing audio data or ASS subtitle content.' }));
-        return;
+      if ((!audioBase64 && !serverAudioFile) || !assContent) {
+        return sendError(res, 400, 'Missing audio data or ASS subtitle content.');
       }
 
-      const jobId = 'karaoke_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-      const audioPath = path.join(TEMP_DIR, `${jobId}.${audioExt || 'mp3'}`);
+      const jobId = generateJobId('karaoke');
+      let audioPath = '';
       const assPath = path.join(TEMP_DIR, `${jobId}.ass`);
       const outputPath = path.join(TEMP_DIR, `${jobId}.mp4`);
+      const filesToClean = [assPath];
 
-      // Write audio buffer
-      const audioBuffer = Buffer.from(audioBase64.replace(/^data:audio\/\w+;base64,/, ''), 'base64');
-      fs.writeFileSync(audioPath, audioBuffer);
-      fs.writeFileSync(assPath, assContent, 'utf-8');
-
-      // Escaping path for libass on Windows (colons and backslashes need special handling)
-      let assPathEscaped = assPath.replace(/\\/g, '/');
-      if (process.platform === 'win32') {
-        assPathEscaped = assPathEscaped.replace(/:/g, '\\:');
+      if (serverAudioFile) {
+        const fname = path.basename(serverAudioFile);
+        const existingPath = path.join(TEMP_DIR, fname);
+        if (fs.existsSync(existingPath)) {
+          audioPath = existingPath;
+        }
       }
 
+      if (!audioPath && audioBase64) {
+        audioPath = path.join(TEMP_DIR, `${jobId}.${audioExt || 'mp3'}`);
+        fs.writeFileSync(audioPath, decodeBase64Payload(audioBase64));
+        filesToClean.push(audioPath);
+      }
+
+      if (!audioPath || !fs.existsSync(audioPath)) {
+        return sendError(res, 400, 'Audio file not found or could not be loaded.');
+      }
+
+      fs.writeFileSync(assPath, assContent, 'utf-8');
+
+      const assPathEscaped = escapeAssPath(assPath);
       const ffmpegArgs = [
         '-y',
         '-f', 'lavfi',
@@ -175,63 +294,32 @@ const server = http.createServer(async (req, res) => {
         '-i', audioPath,
         '-vf', `ass='${assPathEscaped}'`,
         '-shortest',
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-profile:v', 'high',
-        '-level', '4.1',
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-ar', '44100',
-        '-ac', '2',
-        '-movflags', '+faststart',
+        ...UNIVERSAL_MP4_ARGS,
         outputPath
       ];
 
-      console.log(`[FFmpeg] Rendering job ${jobId} using ${getFFmpegPath()}...`);
-      const child = spawn(getFFmpegPath() || 'ffmpeg', ffmpegArgs);
+      console.log(`[FFmpeg] Rendering job ${jobId} via ${getFFmpegPath()}...`);
+      await execProcess(getFFmpegPath() || 'ffmpeg', ffmpegArgs, { tempFilesToClean: filesToClean });
 
-      let stderrLog = '';
-      child.stderr.on('data', chunk => {
-        stderrLog += chunk.toString();
-      });
-
-      child.on('close', code => {
-        // Clean up temp audio and ass
-        try { fs.unlinkSync(audioPath); } catch (e) {}
-        try { fs.unlinkSync(assPath); } catch (e) {}
-
-        if (code === 0 && fs.existsSync(outputPath)) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            success: true,
-            jobId,
-            downloadUrl: `/api/download/${jobId}.mp4`
-          }));
-        } else {
-          console.error('[FFmpeg Error]', stderrLog);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: 'FFmpeg render failed. Check if font or libass is supported.',
-            details: stderrLog.slice(-500)
-          }));
-        }
-      });
-
+      if (fs.existsSync(outputPath)) {
+        return sendJson(res, 200, {
+          success: true,
+          jobId,
+          downloadUrl: `/api/download/${jobId}.mp4`
+        });
+      } else {
+        return sendError(res, 500, 'FFmpeg output file not generated.');
+      }
     } catch (err) {
-      console.error(err);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      console.error('[FFmpeg Render Error]', err);
+      return sendError(res, 500, 'FFmpeg render failed. Check if font or libass is supported.', err.stderr?.slice(-500) || err.message);
     }
-    return;
   }
 
-  // API: Convert client-recorded canvas video to universal H.264 MP4 with faststart
+  // --- API: Convert client-recorded canvas video to universal H.264 MP4 ---
   if (pathname === '/api/convert-recording' && req.method === 'POST') {
     if (!checkFFmpeg()) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'FFmpeg is not installed in system PATH.' }));
-      return;
+      return sendError(res, 400, 'FFmpeg is not installed in system PATH.');
     }
 
     try {
@@ -239,135 +327,94 @@ const server = http.createServer(async (req, res) => {
       const { videoBase64, mimeType } = body;
 
       if (!videoBase64) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing recorded video data.' }));
-        return;
+        return sendError(res, 400, 'Missing recorded video data.');
       }
 
-      const jobId = 'recorded_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      const jobId = generateJobId('recorded');
       const inputExt = (mimeType && mimeType.includes('mp4')) ? 'mp4' : 'webm';
       const inputPath = path.join(TEMP_DIR, `${jobId}_raw.${inputExt}`);
       const outputPath = path.join(TEMP_DIR, `${jobId}.mp4`);
 
-      // Write video buffer from base64
-      const videoBuffer = Buffer.from(videoBase64.replace(/^data:video\/\w+;base64,/, ''), 'base64');
-      fs.writeFileSync(inputPath, videoBuffer);
+      fs.writeFileSync(inputPath, decodeBase64Payload(videoBase64));
 
-      // Convert recorded canvas video into universal H.264 High 4.1 + AAC + Faststart MP4
       const ffmpegArgs = [
         '-y',
         '-i', inputPath,
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-profile:v', 'high',
-        '-level', '4.1',
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-ar', '44100',
-        '-ac', '2',
-        '-movflags', '+faststart',
+        ...UNIVERSAL_MP4_ARGS,
         outputPath
       ];
 
       console.log(`[FFmpeg] Converting recorded canvas video ${jobId} to universal MP4...`);
-      const child = spawn(getFFmpegPath() || 'ffmpeg', ffmpegArgs);
-      let stderrLog = '';
-      child.stderr.on('data', chunk => { stderrLog += chunk.toString(); });
+      await execProcess(getFFmpegPath() || 'ffmpeg', ffmpegArgs, { tempFilesToClean: [inputPath] });
 
-      child.on('close', code => {
-        try { fs.unlinkSync(inputPath); } catch (e) {}
-        if (code === 0 && fs.existsSync(outputPath)) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            success: true,
-            jobId,
-            downloadUrl: `/api/download/${jobId}.mp4`
-          }));
-        } else {
-          console.error('[FFmpeg Convert Error]', stderrLog);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Conversion failed: ' + stderrLog.slice(-300) }));
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
-    }
-    return;
-  }
-
-  // API: YouTube Duet Extractor (Audio + Language & Voice Diarization)
-  if (req.method === 'POST' && pathname === '/api/youtube-duet') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(body || '{}');
-        const url = (payload.url || '').trim();
-        const apiKey = (payload.apiKey || '').trim();
-
-        if (!url) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'error', message: 'YouTube URL is required.' }));
-          return;
-        }
-
-        console.log(`[*] YouTube Duet request for: ${url}`);
-        const scriptPath = path.join(__dirname, 'youtube_duet.py');
-        const args = [scriptPath, '--url', url];
-        if (apiKey) {
-          args.push('--api-key', apiKey);
-        }
-
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-        const child = spawn(pythonCmd, args);
-
-        let stdoutData = '';
-        let stderrData = '';
-
-        child.stdout.on('data', chunk => { stdoutData += chunk.toString(); });
-        child.stderr.on('data', chunk => { stderrData += chunk.toString(); });
-
-        child.on('close', code => {
-          let jsonCandidate = stdoutData.trim();
-          const jsonIdx = jsonCandidate.lastIndexOf('{"status":');
-          if (jsonIdx !== -1) {
-            jsonCandidate = jsonCandidate.substring(jsonIdx);
-          }
-
-          if (code === 0 && jsonCandidate) {
-            try {
-              const parsed = JSON.parse(jsonCandidate);
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify(parsed));
-            } catch (err) {
-              res.writeHead(500, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ status: 'error', message: 'Invalid response from extractor: ' + jsonCandidate }));
-            }
-          } else {
-            console.error('[YouTube Duet Error]', stderrData);
-            let errMsg = 'Failed to extract YouTube duet.';
-            try {
-              const errParsed = JSON.parse(jsonCandidate);
-              if (errParsed.message) errMsg = errParsed.message;
-            } catch (e) {
-              if (stderrData) errMsg = stderrData.slice(-300);
-            }
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ status: 'error', message: errMsg }));
-          }
+      if (fs.existsSync(outputPath)) {
+        return sendJson(res, 200, {
+          success: true,
+          jobId,
+          downloadUrl: `/api/download/${jobId}.mp4`
         });
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'error', message: err.message }));
+      } else {
+        return sendError(res, 500, 'Conversion failed: output file not found.');
       }
-    });
-    return;
+    } catch (err) {
+      console.error('[FFmpeg Convert Error]', err);
+      return sendError(res, 500, `Conversion failed: ${err.stderr?.slice(-300) || err.message}`);
+    }
   }
 
-  // API: Download/Stream rendered or extracted audio/video file
+  // --- API: Unified Auto-Pilot Duet (Local Audio File or YouTube URL) ---
+  if ((pathname === '/api/auto-duet' || pathname === '/api/youtube-duet') && req.method === 'POST') {
+    try {
+      const payload = await parseJsonBody(req);
+      const url = (payload.url || '').trim();
+      const apiKey = (payload.apiKey || '').trim();
+      const audioBase64 = payload.audioBase64 || '';
+      const audioExt = (payload.audioExt || 'mp3').replace(/[^a-zA-Z0-9]/g, '');
+      const title = (payload.title || 'Duet Song').trim();
+
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      const scriptPath = path.join(__dirname, 'youtube_duet.py');
+      const args = [scriptPath];
+
+      if (url) {
+        console.log(`[*] Auto-Duet YouTube request for: ${url}`);
+        args.push('--url', url);
+      } else if (audioBase64) {
+        console.log(`[*] Auto-Duet local file request for: ${title} (.${audioExt})`);
+        const jobId = generateJobId('duet_upload');
+        const audioPath = path.join(TEMP_DIR, `${jobId}.${audioExt}`);
+        fs.writeFileSync(audioPath, decodeBase64Payload(audioBase64));
+        args.push('--audio-file', audioPath, '--title', title);
+      } else {
+        return sendError(res, 400, 'Either a YouTube URL or an audio file is required.');
+      }
+
+      if (apiKey) args.push('--api-key', apiKey);
+
+      const { stdout } = await execProcess(pythonCmd, args);
+
+      let jsonCandidate = stdout.trim();
+      const jsonIdx = jsonCandidate.lastIndexOf('{"status":');
+      if (jsonIdx !== -1) {
+        jsonCandidate = jsonCandidate.substring(jsonIdx);
+      }
+
+      const parsed = JSON.parse(jsonCandidate);
+      return sendJson(res, 200, parsed);
+    } catch (err) {
+      console.error('[Auto-Duet Error]', err.stderr || err.message);
+      let errMsg = 'Failed to extract song and lyrics.';
+      try {
+        const errParsed = JSON.parse(err.stdout || '{}');
+        if (errParsed.message) errMsg = errParsed.message;
+      } catch (_) {
+        if (err.stderr) errMsg = err.stderr.slice(-300);
+      }
+      return sendError(res, 500, errMsg);
+    }
+  }
+
+  // --- API: Download/Stream rendered or extracted audio/video file ---
   if (pathname.startsWith('/api/download/')) {
     const filename = path.basename(pathname.replace('/api/download/', ''));
     const filePath = path.join(TEMP_DIR, filename);
@@ -380,37 +427,21 @@ const server = http.createServer(async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache'
       });
-      const stream = fs.createReadStream(filePath);
-      stream.pipe(res);
+      fs.createReadStream(filePath).pipe(res);
+
       // Auto-clean temporary file after 20 minutes
       setTimeout(() => {
-        try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) {}
+        cleanFiles(filePath);
       }, 1200000);
       return;
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('File not found or expired');
-      return;
+      return res.end('File not found or expired');
     }
   }
 
-  // Static File Serving from /public
-  let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
-  if (safePath === '/' || safePath === '\\') {
-    safePath = fs.existsSync(path.join(PUBLIC_DIR, 'index.html')) ? '/index.html' : '/studio.html';
-  }
-
-  const filePath = path.join(PUBLIC_DIR, safePath);
-
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
-    fs.createReadStream(filePath).pipe(res);
-  } else {
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
-    res.end('<h1>404 Not Found</h1><p>Duet Karaoke Maker web asset not found.</p>');
-  }
+  // --- Static File Serving from /public ---
+  serveStatic(res, pathname);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
