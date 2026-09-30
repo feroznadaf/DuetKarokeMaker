@@ -15,7 +15,7 @@ export default async function ExpiredPage() {
     const { data: allowed } = await supabase
       .from('allowed_emails')
       .select('access_expires_at')
-      .eq('email', userEmail)
+      .ilike('email', userEmail)
       .maybeSingle()
 
     if (allowed?.access_expires_at) {

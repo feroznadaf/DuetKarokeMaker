@@ -41,7 +41,7 @@ export async function middleware(request: NextRequest) {
     supabase
       .from('allowed_emails')
       .select('access_expires_at')
-      .eq('email', userEmail)
+      .ilike('email', userEmail)
       .maybeSingle(),
   ])
 

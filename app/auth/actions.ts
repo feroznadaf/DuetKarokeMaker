@@ -33,6 +33,30 @@ export async function loginAction(
     return { error: error?.message || 'Invalid login credentials.' }
   }
 
+  // 1b. Verify that this email is in allowed_emails
+  const userEmail = (data.user.email || email).trim()
+  const { data: allowed } = await supabase
+    .from('allowed_emails')
+    .select('access_expires_at')
+    .ilike('email', userEmail)
+    .maybeSingle()
+
+  if (!allowed) {
+    await supabase.auth.signOut()
+    return {
+      error: `Access Denied: The email "${userEmail}" is not in the allowed emails list. Only authorized members can log in.`,
+    }
+  }
+
+  if (allowed.access_expires_at && new Date() > new Date(allowed.access_expires_at)) {
+    await supabase.auth.signOut()
+    return {
+      error: `Access Expired: Your pass for "${userEmail}" expired on ${new Date(
+        allowed.access_expires_at
+      ).toLocaleDateString()}. Please contact support to renew.`,
+    }
+  }
+
   // 2. Generate a new random UUID for device session
   const newDeviceSessionToken = crypto.randomUUID()
 
@@ -97,7 +121,26 @@ export async function signupAction(
 
   const supabase = await createClient()
 
-  // Sign up with Supabase (database trigger will check allowed_emails)
+  // Pre-check allowlist before registration
+  const { data: allowed } = await supabase
+    .from('allowed_emails')
+    .select('access_expires_at')
+    .ilike('email', email)
+    .maybeSingle()
+
+  if (!allowed) {
+    return {
+      error: `Access Denied: The email "${email}" is not registered on the allowlist. Only approved members can create an account.`,
+    }
+  }
+
+  if (allowed.access_expires_at && new Date() > new Date(allowed.access_expires_at)) {
+    return {
+      error: `Access Expired: The subscription pass for "${email}" has expired. Please contact support to renew.`,
+    }
+  }
+
+  // Sign up with Supabase
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
