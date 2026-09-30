@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { logoutAction } from '@/app/auth/actions'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 
 export default async function HomePage() {
   const supabase = await createClient()
@@ -12,12 +13,37 @@ export default async function HomePage() {
     redirect('/login')
   }
 
-  // Fetch access expiry details for banner display
-  const { data: allowed } = await supabase
-    .from('allowed_emails')
-    .select('access_expires_at')
-    .ilike('email', user.email || '')
-    .maybeSingle()
+  const userEmail = (user.email || '').trim()
+
+  // 1. Fetch profiles session token and allowed_emails
+  const cookieStore = await cookies()
+  const deviceSessionToken = cookieStore.get('device_session_token')?.value
+
+  const [profileResult, allowedResult] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('current_session_token')
+      .eq('id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('allowed_emails')
+      .select('access_expires_at')
+      .ilike('email', userEmail)
+      .maybeSingle(),
+  ])
+
+  const dbSessionToken = profileResult.data?.current_session_token
+  const allowed = allowedResult.data
+
+  // Check 1: Single-device enforcement
+  if (!deviceSessionToken || !dbSessionToken || deviceSessionToken !== dbSessionToken) {
+    redirect('/login?error=device')
+  }
+
+  // Check 2: Allowed emails and subscription status
+  if (!allowed || (allowed.access_expires_at && new Date() > new Date(allowed.access_expires_at))) {
+    redirect('/expired')
+  }
 
   const expiresDate = allowed?.access_expires_at
     ? new Date(allowed.access_expires_at).toLocaleDateString('en-US', {
