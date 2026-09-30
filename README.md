@@ -40,10 +40,16 @@ chmod +x start.sh
 4. **Interactive Tap-to-Sync Mode**:
    - Don't have timestamps? Switch to the "Tap to Sync" tab, play the song, and tap Spacebar or "Mark Line" to record timestamps in real-time as you listen!
 
-5. **Dual Video Render Options**:
-   - **🚀 In-Browser 1080p Video Render**: Exports high-definition video directly in your browser using Canvas capture + Web Audio. Requires **zero external tools**, uses 0 extra disk space, and works 100% reliably even without FFmpeg installed!
-   - **⚙️ Local Server FFmpeg Render**: If FFmpeg is installed, render via the local server with 1 click.
-   - **📄 Export ASS Subtitles (`.ass`)**: Download the exact SSA/ASS v4+ script file for Aegisub, VLC, or video editors.
+5. **🎙️ Real-Time Vocal Remover (Karaoke Filter)**:
+   - Instant center-channel vocal cancellation using Web Audio API DSP.
+   - Low-pass bass crossover filter ensures punchy kick drums and basslines stay intact.
+   - Smooth 0%–100% intensity slider and 1-click toggle.
+   - 0 MB download, 0 MB disk, 0 wait time. Works live during playback and directly in exported videos.
+
+6. **🚀 In-Browser 1080p Video Render**:
+   - Exports high-definition video directly in your browser using Canvas capture + Web Audio.
+   - Requires zero external tools and works 100% reliably even without FFmpeg installed!
+   - Download button appears immediately upon completion with an in-page video player.
 
 ---
 

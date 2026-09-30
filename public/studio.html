@@ -50,7 +50,51 @@
           <div class="section-title-row">
             <span class="step-num">1</span>
             <h2>Audio Track</h2>
-            <span class="hint-text">MP3, WAV, M4A, OGG</span>
+            <span class="hint-text">YouTube Link or Local Audio</span>
+          </div>
+
+          <!-- YouTube Link to Duet AI Importer -->
+          <div class="youtube-importer-card" id="youtube-importer-card">
+            <div class="yt-header-row">
+              <div class="yt-title-group">
+                <span class="yt-icon">🔴</span>
+                <strong>YouTube Duet Auto-Generator</strong>
+              </div>
+              <button type="button" class="yt-toggle-key-btn" id="btn-toggle-yt-key" title="Configure Gemini AI Key">
+                <span>🔑 AI Key (Optional)</span>
+              </button>
+            </div>
+            
+            <p class="yt-desc">Paste any YouTube music video link to auto-extract audio, detect language, and classify Male vs. Female vocals into duet timestamps.</p>
+
+            <div class="yt-input-group">
+              <input type="text" id="yt-url-input" class="yt-input" placeholder="Paste YouTube Link (e.g. https://youtu.be/...)" autocomplete="off">
+              <button type="button" id="btn-fetch-yt" class="btn btn-yt-fetch">
+                <span>🪄 Auto-Generate</span>
+              </button>
+            </div>
+
+            <!-- Optional Collapsible API Key Config -->
+            <div class="yt-key-drawer" id="yt-key-drawer" style="display: none;">
+              <div class="yt-key-inner">
+                <div class="yt-key-label-row">
+                  <span>Gemini API Key (for Voice & Language AI):</span>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" class="yt-key-link">Get Free Key ↗</a>
+                </div>
+                <input type="password" id="yt-api-key" class="yt-key-input" placeholder="AIzaSy... (Saved in your browser)">
+                <span class="yt-key-hint">Without an API key, it uses YouTube's synced subtitles as fallback.</span>
+              </div>
+            </div>
+
+            <!-- Progress & Status Row -->
+            <div class="yt-status-box" id="yt-status-box" style="display: none;">
+              <div class="yt-spinner" id="yt-spinner"></div>
+              <span id="yt-status-text">Downloading audio stream from YouTube...</span>
+            </div>
+          </div>
+
+          <div class="or-divider">
+            <span>OR UPLOAD LOCAL AUDIO</span>
           </div>
 
           <div class="dropzone" id="audio-dropzone">
@@ -93,6 +137,44 @@
                 <option value="1.0" selected>1.0x</option>
                 <option value="1.25">1.25x</option>
               </select>
+            </div>
+          </div>
+
+          <!-- Real-Time Vocal Remover (Option A: Web Audio DSP) -->
+          <div class="vocal-remover-card" id="vocal-remover-card">
+            <div class="vr-main-row">
+              <div class="vr-info">
+                <div class="vr-badge-title">
+                  <span class="vr-icon">🎙️</span>
+                  <strong>Vocal Remover / Karaoke Filter</strong>
+                  <span class="vr-status-badge" id="vr-status-badge">ORIGINAL</span>
+                </div>
+                <p class="vr-desc">Instant real-time center vocal cancellation with low-end bass preservation.</p>
+              </div>
+              <div class="vr-toggle-wrap">
+                <label class="toggle-switch" title="Toggle Karaoke Vocal Remover">
+                  <input type="checkbox" id="chk-vocal-cut">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Expandable slider & bass controls -->
+            <div class="vr-details" id="vr-details" style="display: none;">
+              <div class="vr-control-item">
+                <div class="vr-label-row">
+                  <span>Vocal Cut Intensity:</span>
+                  <span class="vr-val-text" id="vr-intensity-val">100%</span>
+                </div>
+                <input type="range" id="vr-intensity-slider" min="10" max="100" value="100" class="vr-range">
+              </div>
+              <div class="vr-control-item-row">
+                <label class="vr-checkbox-label" title="Preserves low-end kick and bassline frequencies">
+                  <input type="checkbox" id="chk-bass-preserve" checked>
+                  <span>🔊 Bass Preservation (Keep Kick & Bass)</span>
+                </label>
+                <button type="button" class="btn-preset-reset" id="btn-vr-reset" title="Reset to default 100% Karaoke">Reset</button>
+              </div>
             </div>
           </div>
         </div>
@@ -259,34 +341,12 @@
                   <span class="compat-tag">👁️ Plays & Renders Live</span>
                   <span class="compat-tag">📱 Universal (iPhone, Android, Tab, PC, TV)</span>
                   <span class="compat-tag">⬇ Download Button Appears on Finish</span>
+                  <span class="compat-tag" id="export-audio-mode-tag">🎙️ Audio: Original Track</span>
                 </div>
               </div>
               <button class="btn btn-primary btn-lg" id="btn-render-live">
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                 <span>▶ Render Video Live</span>
-              </button>
-            </div>
-
-            <!-- Fast Server Render Option -->
-            <div class="export-card secondary-export" id="card-ffmpeg-export">
-              <div class="export-card-info">
-                <h4>⚡ Fast Universal MP4 Render (FFmpeg Engine)</h4>
-                <p id="ffmpeg-desc">High-speed server render with H.264 High 4.1 + Faststart. Ready in seconds for iPhone, Android, and PC.</p>
-              </div>
-              <button class="btn btn-secondary" id="btn-render-universal">
-                <span>Fast Server Render</span>
-              </button>
-            </div>
-
-            <!-- ASS Subtitle File Export -->
-            <div class="export-card utility-export">
-              <div class="export-card-info">
-                <h4>📄 Export Substation Alpha Subtitle (.ass)</h4>
-                <p>Original ASS subtitle file with exact \kf sweeps, styles, and anti-overlap dialogue timings for video editors.</p>
-              </div>
-              <button class="btn btn-outline" id="btn-export-ass">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <span>Download .ASS File</span>
               </button>
             </div>
           </div>

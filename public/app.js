@@ -23,6 +23,20 @@ const state = {
   currentTime: 0,
   playbackRate: 1.0,
 
+  // Option A: Real-Time Web Audio Vocal Remover (Karaoke DSP)
+  vocalCutEnabled: false,
+  vocalCutIntensity: 100,
+  bassPreserveEnabled: true,
+  dryGain: null,
+  wetGain: null,
+  bassGain: null,
+  diffSummer: null,
+  lowPassFilter: null,
+  highPassFilter: null,
+  splitter: null,
+  rightInvertGain: null,
+  masterOutput: null,
+
   fontSize: 85,
   color1: '#00FFFF',
   color2: '#FF00FF',
@@ -65,6 +79,27 @@ const dom = {
   timeDisplay: document.getElementById('time-display'),
   timeScrubber: document.getElementById('time-scrubber'),
   playbackSpeed: document.getElementById('playback-speed'),
+
+  // Real-Time Vocal Remover Controls
+  vocalRemoverCard: document.getElementById('vocal-remover-card'),
+  chkVocalCut: document.getElementById('chk-vocal-cut'),
+  vrStatusBadge: document.getElementById('vr-status-badge'),
+  vrDetails: document.getElementById('vr-details'),
+  vrIntensitySlider: document.getElementById('vr-intensity-slider'),
+  vrIntensityVal: document.getElementById('vr-intensity-val'),
+  chkBassPreserve: document.getElementById('chk-bass-preserve'),
+  btnVrReset: document.getElementById('btn-vr-reset'),
+  exportAudioModeTag: document.getElementById('export-audio-mode-tag'),
+
+  // YouTube Duet Auto-Generator
+  youtubeImporterCard: document.getElementById('youtube-importer-card'),
+  ytUrlInput: document.getElementById('yt-url-input'),
+  btnFetchYt: document.getElementById('btn-fetch-yt'),
+  btnToggleYtKey: document.getElementById('btn-toggle-yt-key'),
+  ytKeyDrawer: document.getElementById('yt-key-drawer'),
+  ytApiKey: document.getElementById('yt-api-key'),
+  ytStatusBox: document.getElementById('yt-status-box'),
+  ytStatusText: document.getElementById('yt-status-text'),
 
   // Color inputs
   color1: document.getElementById('color-1'),
@@ -494,8 +529,193 @@ function updateTimeDisplay() {
 }
 
 // ==========================================
-// 8. AUDIO HANDLING
+// 8. AUDIO HANDLING & VOCAL REMOVER DSP
 // ==========================================
+function initAudioGraph() {
+  if (state.audioContext && state.audioSourceNode) {
+    if (state.audioContext.state === 'suspended') {
+      state.audioContext.resume();
+    }
+    return;
+  }
+
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    state.audioContext = new AudioCtx();
+    state.audioSourceNode = state.audioContext.createMediaElementSource(state.audioElement);
+    state.mediaStreamDestination = state.audioContext.createMediaStreamDestination();
+
+    // 1. Dry Path (Original untouched audio)
+    state.dryGain = state.audioContext.createGain();
+    state.dryGain.gain.value = 1.0;
+    state.audioSourceNode.connect(state.dryGain);
+
+    // 2. Wet Path (Karaoke Vocal Removal DSP)
+    state.wetGain = state.audioContext.createGain();
+    state.wetGain.gain.value = 0.0;
+
+    // Bass Preservation (Low-pass filter below ~175Hz keeps kick & bassline punchy)
+    state.lowPassFilter = state.audioContext.createBiquadFilter();
+    state.lowPassFilter.type = 'lowpass';
+    state.lowPassFilter.frequency.value = 175;
+    state.lowPassFilter.Q.value = 0.707;
+
+    state.bassGain = state.audioContext.createGain();
+    state.bassGain.gain.value = 1.0;
+
+    state.audioSourceNode.connect(state.lowPassFilter);
+    state.lowPassFilter.connect(state.bassGain);
+    state.bassGain.connect(state.wetGain);
+
+    // Mid/High Vocal Inversion Crossover (High-pass filter above ~175Hz)
+    state.highPassFilter = state.audioContext.createBiquadFilter();
+    state.highPassFilter.type = 'highpass';
+    state.highPassFilter.frequency.value = 175;
+    state.highPassFilter.Q.value = 0.707;
+
+    state.splitter = state.audioContext.createChannelSplitter(2);
+    state.rightInvertGain = state.audioContext.createGain();
+    state.rightInvertGain.gain.value = -1.0;
+
+    state.diffSummer = state.audioContext.createGain();
+    state.diffSummer.gain.value = 0.75; // Normalize differential stereo energy
+
+    state.audioSourceNode.connect(state.highPassFilter);
+    state.highPassFilter.connect(state.splitter);
+
+    // Channel 0 (Left) -> diffSummer (+Left)
+    state.splitter.connect(state.diffSummer, 0);
+    // Channel 1 (Right) -> rightInvertGain (-Right) -> diffSummer
+    state.splitter.connect(state.rightInvertGain, 1);
+    state.rightInvertGain.connect(state.diffSummer);
+
+    // Differential high-pass signal to wetGain
+    state.diffSummer.connect(state.wetGain);
+
+    // 3. Master Output node
+    state.masterOutput = state.audioContext.createGain();
+    state.masterOutput.gain.value = 1.0;
+
+    state.dryGain.connect(state.masterOutput);
+    state.wetGain.connect(state.masterOutput);
+
+    // 4. Output to speakers AND video mediaStreamDestination
+    state.masterOutput.connect(state.audioContext.destination);
+    state.masterOutput.connect(state.mediaStreamDestination);
+
+    updateVocalRemoverDsp();
+  } catch (e) {
+    console.warn('AudioContext / Vocal Remover setup warning:', e);
+  }
+}
+
+function updateVocalRemoverDsp() {
+  if (!state.audioContext || !state.dryGain || !state.wetGain) return;
+
+  const now = state.audioContext.currentTime;
+  const isEnabled = state.vocalCutEnabled;
+  const intensity = (state.vocalCutIntensity || 100) / 100;
+
+  if (!isEnabled) {
+    state.dryGain.gain.setTargetAtTime(1.0, now, 0.02);
+    state.wetGain.gain.setTargetAtTime(0.0, now, 0.02);
+    if (dom.exportAudioModeTag) dom.exportAudioModeTag.textContent = '🎙️ Audio: Original Track';
+  } else {
+    const dryVal = Math.max(0, 1.0 - intensity);
+    const wetVal = intensity * 1.35; // Boost perceived volume of differential signal
+    state.dryGain.gain.setTargetAtTime(dryVal, now, 0.02);
+    state.wetGain.gain.setTargetAtTime(wetVal, now, 0.02);
+
+    if (state.bassGain) {
+      const bassVal = state.bassPreserveEnabled ? 1.15 : 0.0;
+      state.bassGain.gain.setTargetAtTime(bassVal, now, 0.02);
+    }
+    if (dom.exportAudioModeTag) dom.exportAudioModeTag.textContent = `🎙️ Audio: Karaoke Filter (${state.vocalCutIntensity}%)`;
+  }
+}
+
+async function handleYouTubeDuet() {
+  const url = (dom.ytUrlInput.value || '').trim();
+  if (!url) {
+    alert('Please paste a valid YouTube video link (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...)');
+    dom.ytUrlInput.focus();
+    return;
+  }
+
+  // Ensure AudioContext is ready for playback
+  initAudioGraph();
+
+  const apiKey = (dom.ytApiKey ? dom.ytApiKey.value : '').trim();
+  if (apiKey) {
+    try { localStorage.setItem('duet_gemini_api_key', apiKey); } catch (e) {}
+  }
+
+  // UI Loading State
+  dom.btnFetchYt.disabled = true;
+  dom.btnFetchYt.innerHTML = '<span>⏳ Processing...</span>';
+  dom.ytStatusBox.style.display = 'flex';
+  dom.ytStatusText.textContent = '📥 Extracting high-quality audio stream from YouTube...';
+
+  const timer = setTimeout(() => {
+    if (dom.ytStatusText) {
+      dom.ytStatusText.textContent = apiKey
+        ? '🤖 Gemini AI analyzing audio: detecting language & classifying Male/Female vocals...'
+        : '🤖 Reading audio & extracting synchronized lyrics...';
+    }
+  }, 4000);
+
+  try {
+    const res = await fetch('/api/youtube-duet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, apiKey })
+    });
+
+    clearTimeout(timer);
+    const data = await res.json();
+
+    if (!res.ok || data.status === 'error') {
+      throw new Error(data.message || 'Failed to process YouTube audio.');
+    }
+
+    dom.ytStatusText.textContent = `✨ Success! ${data.title} (${data.language || 'Duet'}) loaded!`;
+
+    // 1. Populate Lyrics Editor
+    if (data.lyrics) {
+      dom.lyricsTextarea.value = data.lyrics;
+      parseAndUpdateLyrics();
+    }
+
+    // 2. Load audio directly from server
+    state.audioFile = { name: `${data.title}.mp3` };
+    state.audioElement.src = data.audioUrl;
+    dom.audioFilename.textContent = `${data.title} [YouTube]`;
+    dom.dropzonePrompt.style.display = 'none';
+    dom.audioLoadedCard.style.display = 'flex';
+
+    state.audioElement.onloadedmetadata = () => {
+      state.audioDuration = state.audioElement.duration || data.duration || 30;
+      dom.audioDuration.textContent = formatDisplayTime(state.audioDuration);
+      dom.timeScrubber.max = state.audioDuration;
+      updateTimeDisplay();
+      renderCanvasFrame(0);
+    };
+
+    setTimeout(() => {
+      dom.paneEditor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 600);
+
+  } catch (err) {
+    clearTimeout(timer);
+    console.error('[YouTube Duet Error]', err);
+    alert('YouTube Duet Error: ' + err.message);
+    dom.ytStatusBox.style.display = 'none';
+  } finally {
+    dom.btnFetchYt.disabled = false;
+    dom.btnFetchYt.innerHTML = '<span>🪄 Auto-Generate</span>';
+  }
+}
+
 function loadAudioFile(file) {
   state.audioFile = file;
   const objectUrl = URL.createObjectURL(file);
@@ -519,6 +739,9 @@ function togglePlay() {
     alert('Please upload an audio track or click "Load Sample Song" first.');
     return;
   }
+
+  // Ensure AudioContext & Vocal Remover DSP graph are initialized
+  initAudioGraph();
 
   if (state.isPlaying) {
     state.audioElement.pause();
@@ -648,18 +871,8 @@ async function renderVideoLive() {
   // 2. Scroll canvas stage smoothly into view so user can watch the whole video playing
   dom.stageWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-  // 3. Setup WebAudio capture
-  if (!state.audioContext) {
-    try {
-      state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      state.audioSourceNode = state.audioContext.createMediaElementSource(state.audioElement);
-      state.mediaStreamDestination = state.audioContext.createMediaStreamDestination();
-      state.audioSourceNode.connect(state.audioContext.destination);
-      state.audioSourceNode.connect(state.mediaStreamDestination);
-    } catch (e) {
-      console.warn('AudioContext setup:', e);
-    }
-  }
+  // 3. Setup WebAudio capture & ensure DSP graph is ready
+  initAudioGraph();
   if (state.audioContext && state.audioContext.state === 'suspended') {
     try {
       await state.audioContext.resume();
@@ -1044,6 +1257,37 @@ function initEventListeners() {
     updateTimeDisplay();
   });
 
+  // YouTube Duet Importer Event Listeners
+  if (dom.btnToggleYtKey) {
+    try {
+      const savedKey = localStorage.getItem('duet_gemini_api_key');
+      if (savedKey && dom.ytApiKey) {
+        dom.ytApiKey.value = savedKey;
+      }
+    } catch (e) {}
+
+    dom.btnToggleYtKey.addEventListener('click', () => {
+      if (dom.ytKeyDrawer) {
+        const isHidden = dom.ytKeyDrawer.style.display === 'none';
+        dom.ytKeyDrawer.style.display = isHidden ? 'block' : 'none';
+        if (isHidden && dom.ytApiKey) dom.ytApiKey.focus();
+      }
+    });
+  }
+
+  if (dom.btnFetchYt) {
+    dom.btnFetchYt.addEventListener('click', handleYouTubeDuet);
+  }
+
+  if (dom.ytUrlInput) {
+    dom.ytUrlInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleYouTubeDuet();
+      }
+    });
+  }
+
   // Player controls
   dom.btnPlayPause.addEventListener('click', togglePlay);
   dom.timeScrubber.addEventListener('input', e => {
@@ -1057,6 +1301,55 @@ function initEventListeners() {
     state.playbackRate = parseFloat(e.target.value);
     state.audioElement.playbackRate = state.playbackRate;
   });
+
+  // Real-Time Vocal Remover Event Listeners (Option A)
+  if (dom.chkVocalCut) {
+    dom.chkVocalCut.addEventListener('change', () => {
+      initAudioGraph();
+      if (state.audioContext && state.audioContext.state === 'suspended') {
+        state.audioContext.resume();
+      }
+      state.vocalCutEnabled = dom.chkVocalCut.checked;
+      if (state.vocalCutEnabled) {
+        dom.vocalRemoverCard.classList.add('active');
+        dom.vrStatusBadge.textContent = 'KARAOKE ON';
+        dom.vrStatusBadge.classList.add('active');
+        dom.vrDetails.style.display = 'flex';
+      } else {
+        dom.vocalRemoverCard.classList.remove('active');
+        dom.vrStatusBadge.textContent = 'ORIGINAL';
+        dom.vrStatusBadge.classList.remove('active');
+        dom.vrDetails.style.display = 'none';
+      }
+      updateVocalRemoverDsp();
+    });
+  }
+
+  if (dom.vrIntensitySlider) {
+    dom.vrIntensitySlider.addEventListener('input', e => {
+      state.vocalCutIntensity = parseInt(e.target.value, 10);
+      dom.vrIntensityVal.textContent = state.vocalCutIntensity + '%';
+      updateVocalRemoverDsp();
+    });
+  }
+
+  if (dom.chkBassPreserve) {
+    dom.chkBassPreserve.addEventListener('change', e => {
+      state.bassPreserveEnabled = e.target.checked;
+      updateVocalRemoverDsp();
+    });
+  }
+
+  if (dom.btnVrReset) {
+    dom.btnVrReset.addEventListener('click', () => {
+      state.vocalCutIntensity = 100;
+      state.bassPreserveEnabled = true;
+      dom.vrIntensitySlider.value = 100;
+      dom.vrIntensityVal.textContent = '100%';
+      dom.chkBassPreserve.checked = true;
+      updateVocalRemoverDsp();
+    });
+  }
 
   // Color inputs
   dom.color1.addEventListener('input', e => {
@@ -1157,15 +1450,17 @@ function initEventListeners() {
   });
 
   // Export buttons
-  dom.btnExportAss.addEventListener('click', () => {
-    const assContent = generateAssSubtitle();
-    const blob = new Blob([assContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'duet_karaoke.ass';
-    a.click();
-  });
+  if (dom.btnExportAss) {
+    dom.btnExportAss.addEventListener('click', () => {
+      const assContent = generateAssSubtitle();
+      const blob = new Blob([assContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'duet_karaoke.ass';
+      a.click();
+    });
+  }
 
   if (dom.btnRenderLive) dom.btnRenderLive.addEventListener('click', renderVideoInBrowser);
   if (dom.btnRenderUniversal) dom.btnRenderUniversal.addEventListener('click', renderVideoWithFfmpeg);
@@ -1210,16 +1505,16 @@ async function checkServerStatus() {
       state.ffmpegAvailable = data.ffmpegAvailable;
       if (data.ffmpegAvailable) {
         dom.engineStatus.textContent = 'Universal MP4 Engine Ready (All Devices)';
-        dom.ffmpegDesc.textContent = 'Hardware H.264 High 4.1 + AAC + Faststart. 100% playable on mobile, laptop, tab, TV & WhatsApp.';
+        if (dom.ffmpegDesc) dom.ffmpegDesc.textContent = 'Hardware H.264 High 4.1 + AAC + Faststart. 100% playable on mobile, laptop, tab, TV & WhatsApp.';
       } else {
         dom.engineStatus.textContent = 'Browser Engine Ready (Lite)';
-        dom.ffmpegDesc.textContent = 'FFmpeg not detected. Use in-browser 1080p render or run install_ffmpeg.bat.';
+        if (dom.ffmpegDesc) dom.ffmpegDesc.textContent = 'FFmpeg not detected. Use in-browser 1080p render or run install_ffmpeg.bat.';
       }
     }
   } catch (err) {
     // Running statically or offline without server
     dom.engineStatus.textContent = 'Standalone Browser Engine Ready';
-    dom.ffmpegDesc.textContent = 'Running standalone. Use In-Browser 1080p Video render.';
+    if (dom.ffmpegDesc) dom.ffmpegDesc.textContent = 'Running standalone. Use In-Browser 1080p Video render.';
   }
 }
 

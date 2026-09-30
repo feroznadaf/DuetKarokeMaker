@@ -19,3 +19,5 @@ __pycache__/
 *.pyd
 node_modules/
 .npm
+.next/
+.env*.local

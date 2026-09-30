@@ -298,22 +298,94 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // API: Download rendered file
+  // API: YouTube Duet Extractor (Audio + Language & Voice Diarization)
+  if (req.method === 'POST' && pathname === '/api/youtube-duet') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const url = (payload.url || '').trim();
+        const apiKey = (payload.apiKey || '').trim();
+
+        if (!url) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'error', message: 'YouTube URL is required.' }));
+          return;
+        }
+
+        console.log(`[*] YouTube Duet request for: ${url}`);
+        const scriptPath = path.join(__dirname, 'youtube_duet.py');
+        const args = [scriptPath, '--url', url];
+        if (apiKey) {
+          args.push('--api-key', apiKey);
+        }
+
+        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const child = spawn(pythonCmd, args);
+
+        let stdoutData = '';
+        let stderrData = '';
+
+        child.stdout.on('data', chunk => { stdoutData += chunk.toString(); });
+        child.stderr.on('data', chunk => { stderrData += chunk.toString(); });
+
+        child.on('close', code => {
+          let jsonCandidate = stdoutData.trim();
+          const jsonIdx = jsonCandidate.lastIndexOf('{"status":');
+          if (jsonIdx !== -1) {
+            jsonCandidate = jsonCandidate.substring(jsonIdx);
+          }
+
+          if (code === 0 && jsonCandidate) {
+            try {
+              const parsed = JSON.parse(jsonCandidate);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(parsed));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ status: 'error', message: 'Invalid response from extractor: ' + jsonCandidate }));
+            }
+          } else {
+            console.error('[YouTube Duet Error]', stderrData);
+            let errMsg = 'Failed to extract YouTube duet.';
+            try {
+              const errParsed = JSON.parse(jsonCandidate);
+              if (errParsed.message) errMsg = errParsed.message;
+            } catch (e) {
+              if (stderrData) errMsg = stderrData.slice(-300);
+            }
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'error', message: errMsg }));
+          }
+        });
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', message: err.message }));
+      }
+    });
+    return;
+  }
+
+  // API: Download/Stream rendered or extracted audio/video file
   if (pathname.startsWith('/api/download/')) {
     const filename = path.basename(pathname.replace('/api/download/', ''));
     const filePath = path.join(TEMP_DIR, filename);
 
     if (fs.existsSync(filePath)) {
+      const ext = path.extname(filename).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
       res.writeHead(200, {
-        'Content-Type': 'video/mp4',
-        'Content-Disposition': `attachment; filename="${filename}"`
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache'
       });
       const stream = fs.createReadStream(filePath);
       stream.pipe(res);
-      // Delete temporary file 2 minutes after downloading
+      // Auto-clean temporary file after 20 minutes
       setTimeout(() => {
         try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) {}
-      }, 120000);
+      }, 1200000);
       return;
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -325,7 +397,7 @@ const server = http.createServer(async (req, res) => {
   // Static File Serving from /public
   let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
   if (safePath === '/' || safePath === '\\') {
-    safePath = '/index.html';
+    safePath = fs.existsSync(path.join(PUBLIC_DIR, 'index.html')) ? '/index.html' : '/studio.html';
   }
 
   const filePath = path.join(PUBLIC_DIR, safePath);
