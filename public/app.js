@@ -708,7 +708,7 @@ function togglePlay() {
 }
 
 // ==========================================
-// 9. 1-CLICK AUTO-PILOT DUET STUDIO (LEVEL UP)
+// 9. 1-CLICK AUTO-PILOT DUET STUDIO (ZERO-UPLOAD CLIENT ENGINE)
 // ==========================================
 function setAutopilotStep(step, message) {
   if (!dom.autopilotStepper) return;
@@ -737,36 +737,206 @@ function setAutopilotStep(step, message) {
   }
 }
 
+function detectLanguageFromText(text) {
+  if (!text) return 'English / International';
+  if (/[\u0900-\u097F]/.test(text)) return 'Hindi (हिंदी)';
+  if (/[\uAC00-\uD7AF]/.test(text)) return 'Korean (한국어)';
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) return 'Japanese (日本語)';
+  if (/[\u4E00-\u9FFF]/.test(text)) return 'Chinese (中文)';
+  if (/[\u0600-\u06FF]/.test(text)) return 'Arabic / Urdu';
+  if (/[\u0B80-\u0BFF]/.test(text)) return 'Tamil (தமிழ்)';
+  if (/[\u0C00-\u0C7F]/.test(text)) return 'Telugu (తెలుగు)';
+  if (/[\u0C80-\u0CFF]/.test(text)) return 'Kannada (ಕನ್ನಡ)';
+  if (/[\u0D00-\u0D7F]/.test(text)) return 'Malayalam (മലയാളം)';
+  if (/[\u0A80-\u0AFF]/.test(text)) return 'Gujarati (ગુજરાતી)';
+  if (/[\u0980-\u09FF]/.test(text)) return 'Bengali (বাংলা)';
+  if (/[\u0400-\u04FF]/.test(text)) return 'Russian (Русский)';
+  if (/\b(?:que|para|por|con|como|este|esta|todo|amor|corazón|vida|noche|tú|yo)\b/i.test(text)) return 'Spanish (Español)';
+  if (/\b(?:oui|mon|ton|son|avec|dans|pour|tout|chanson|amour|nous|vous)\b/i.test(text)) return 'French (Français)';
+  if (/\b(?:und|der|die|das|nicht|ein|eine|mit|auch|liebe)\b/i.test(text)) return 'German (Deutsch)';
+  if (/\b(?:tum|hum|dil|pyaar|ishq|meri|mera|tera|tere|teri|zindagi|saath|sanam|hai|ho|koi)\b/i.test(text)) return 'Hindi / Bollywood (Romanized)';
+  return 'English / International';
+}
+
+function convertLrcToDuetKaraoke(lrcText, totalDuration) {
+  const lines = lrcText.split('\n').map(l => l.trim()).filter(Boolean);
+  const parsed = [];
+
+  for (const line of lines) {
+    const match = /\[(\d{2}):(\d{2}(?:\.\d{1,3})?)\](.*)/.exec(line);
+    if (!match) continue;
+    const mins = parseInt(match[1], 10);
+    const secs = parseFloat(match[2]);
+    const startSec = mins * 60 + secs;
+    const text = match[3].trim();
+    if (!text || /^(?:by:|ar:|ti:|al:|length:|re:)/i.test(text)) continue;
+    parsed.push({ startSec, text });
+  }
+
+  if (parsed.length === 0) return '';
+
+  const duetLines = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const cur = parsed[i];
+    const next = parsed[i + 1];
+    let endSec = next ? next.startSec : Math.min(cur.startSec + 5.0, totalDuration || cur.startSec + 5.0);
+    if (endSec <= cur.startSec) endSec = cur.startSec + 3.0;
+
+    let text = cur.text;
+    let tag = null;
+    if (/\b(?:male|part 1|singer 1|he|him)\b/i.test(text)) {
+      tag = '[1]';
+      text = text.replace(/\[?(?:male|part 1|singer 1)\]?:?/gi, '').trim();
+    } else if (/\b(?:female|part 2|singer 2|she|her)\b/i.test(text)) {
+      tag = '[2]';
+      text = text.replace(/\[?(?:female|part 2|singer 2)\]?:?/gi, '').trim();
+    } else if (/\b(?:both|together|duet|chorus|all)\b/i.test(text)) {
+      tag = '[3]';
+      text = text.replace(/\[?(?:both|together|duet|chorus|all)\]?:?/gi, '').trim();
+    }
+
+    if (!tag) {
+      const group = Math.floor(i / 2) % 3;
+      tag = group === 0 ? '[1]' : (group === 1 ? '[2]' : '[3]');
+    }
+
+    const fmt = s => {
+      const m = Math.floor(s / 60);
+      const sec = (s % 60).toFixed(2);
+      return `${m < 10 ? '0' + m : m}:${sec < 10 ? '0' + sec : sec}`;
+    };
+
+    duetLines.push(`${tag} [${fmt(cur.startSec)} - ${fmt(endSec)}] ${text}`);
+  }
+
+  return duetLines.join('\n');
+}
+
+function convertPlainLyricsToDuet(plainText, totalDuration) {
+  const lines = plainText.split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('[') && !l.startsWith('('));
+
+  if (lines.length === 0) return '';
+
+  const dur = Math.max(totalDuration || 180, 60);
+  const startOffset = Math.min(8.0, dur * 0.05);
+  const endOffset = Math.max(dur - 6.0, startOffset + 20.0);
+  const lineDuration = Math.min(6.5, Math.max(3.0, (endOffset - startOffset) / lines.length));
+
+  const fmt = s => {
+    const m = Math.floor(s / 60);
+    const sec = (s % 60).toFixed(2);
+    return `${m < 10 ? '0' + m : m}:${sec < 10 ? '0' + sec : sec}`;
+  };
+
+  const duetLines = [];
+  for (let i = 0; i < lines.length; i++) {
+    const startSec = startOffset + i * lineDuration;
+    const endSec = Math.min(startSec + lineDuration - 0.3, dur - 1.0);
+    const group = Math.floor(i / 2) % 3;
+    const tag = group === 0 ? '[1]' : (group === 1 ? '[2]' : '[3]');
+    duetLines.push(`${tag} [${fmt(startSec)} - ${fmt(endSec)}] ${lines[i]}`);
+  }
+
+  return duetLines.join('\n');
+}
+
+function generateMelodicDuetCues(title, totalDuration) {
+  const dur = Math.max(totalDuration || 180, 60);
+  const cueInterval = 10.0;
+  const numCues = Math.floor((dur - 15.0) / cueInterval);
+
+  const fmt = s => {
+    const m = Math.floor(s / 60);
+    const sec = (s % 60).toFixed(2);
+    return `${m < 10 ? '0' + m : m}:${sec < 10 ? '0' + sec : sec}`;
+  };
+
+  const cues = [];
+  for (let i = 0; i < numCues; i++) {
+    const startSec = 8.0 + i * cueInterval;
+    const endSec = startSec + 8.5;
+    const group = i % 3;
+    const tag = group === 0 ? '[1]' : (group === 1 ? '[2]' : '[3]');
+    const role = group === 0 ? 'Male Voice Melody' : (group === 1 ? 'Female Voice Melody' : 'Both Singing in Harmony');
+    cues.push(`${tag} [${fmt(startSec)} - ${fmt(endSec)}] 🎵 ${title} - ${role} (${i + 1})`);
+  }
+
+  return cues.join('\n');
+}
+
+async function askGeminiForDuet({ title, duration, existingLyrics, apiKey }) {
+  const model = 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const prompt = `You are an expert audio & vocal arranger for Duet Karaoke songs.
+Song Title: "${title}"
+Approximate Duration: ${Math.round(duration)} seconds.
+${existingLyrics ? `Reference Lyrics:\n${existingLyrics.slice(0, 3000)}\n` : ''}
+
+Task:
+1. Detect the primary singing language of this song.
+2. Structure the song into a duet with 3 distinct singer assignments:
+   - Part [1] for Male singer (or first lead)
+   - Part [2] for Female singer (or second lead)
+   - Part [3] for Both / Together (choruses, duets, climaxes, harmony)
+3. Provide synchronized timestamps in format:
+   [TAG] [MM:SS.SS - MM:SS.SS] Lyric Line text
+   Example:
+   [1] [00:15.00 - 00:20.50] Male line
+   [2] [00:21.00 - 00:26.00] Female line
+   [3] [00:27.00 - 00:34.00] Both singing together
+
+Format strictly:
+Line 1: LANGUAGE: <Language Name>
+Remaining lines: only the timestamped duet karaoke lines.`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 150)}`);
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  let language = '';
+  const lyricLines = [];
+
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.toUpperCase().startsWith('LANGUAGE:')) {
+      language = trimmed.split(':', 2)[1].trim();
+      continue;
+    }
+    if (/\[[123]\]\s*\[\d{2}:\d{2}/.test(trimmed)) {
+      lyricLines.push(trimmed);
+    }
+  }
+
+  return { language, lyrics: lyricLines.join('\n') };
+}
+
 async function runOneClickAutoDuet() {
   const isFileMode = dom.tabSrcFile?.classList.contains('active');
-  let url = '';
-  let audioBase64 = '';
-  let audioExt = 'mp3';
-  let title = 'Duet Song';
-
   const apiKey = (dom.ytApiKey?.value || localStorage.getItem('duet_gemini_api_key') || '').trim();
   if (apiKey) {
     try { localStorage.setItem('duet_gemini_api_key', apiKey); } catch (_) {}
   }
 
-  if (isFileMode) {
-    const file = state.audioFile;
-    if (!file) {
-      alert('Please upload a song file (MP3, WAV, etc.) or drag & drop one into the box first.');
-      dom.audioFileInput?.click();
-      return;
-    }
-    title = file.name.replace(/\.[^/.]+$/, '');
-    audioExt = file.name.split('.').pop() || 'mp3';
-    audioBase64 = await readFileAsBase64(file);
-  } else {
-    url = (dom.ytUrlInput?.value || '').trim();
-    if (!url) {
-      alert('Please paste a YouTube song link first (e.g. https://youtu.be/...)');
-      dom.ytUrlInput?.focus();
-      return;
-    }
-  }
+  let title = 'Duet Song';
+  let duration = 180;
+  let lyrics = '';
+  let language = 'Duet Song';
 
   setAutopilotStep(1, '🎵 1/4: Ingesting audio track & preparing analysis...');
   if (dom.btnRunAutopilot) {
@@ -775,52 +945,205 @@ async function runOneClickAutoDuet() {
   }
 
   try {
-    setAutopilotStep(2, apiKey
-      ? '🧠 2/4: Gemini AI detecting singing language & separating Male [1] / Female [2] / Duet [3]...'
-      : '🤖 2/4: Processing audio, detecting language & retrieving synchronized lyrics...'
-    );
+    if (isFileMode) {
+      const file = state.audioFile;
+      if (!file) {
+        alert('Please upload a song file (MP3, WAV, etc.) or drag & drop one into the box first.');
+        dom.audioFileInput?.click();
+        return;
+      }
 
-    const res = await fetch('/api/auto-duet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, audioBase64, audioExt, title, apiKey })
-    });
+      title = file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]+/g, ' ').trim();
 
-    const data = await res.json();
-    if (!res.ok || data.status === 'error') {
-      throw new Error(data.message || 'Failed to auto-generate duet.');
+      // Ensure local audio is loaded into state.audioElement
+      if (!state.audioElement.src || !state.audioElement.src.startsWith('blob:')) {
+        state.audioElement.src = URL.createObjectURL(file);
+      }
+
+      // Read duration from file
+      duration = await new Promise(resolve => {
+        if (state.audioDuration > 0) return resolve(state.audioDuration);
+        if (state.audioElement.duration && !isNaN(state.audioElement.duration)) {
+          return resolve(state.audioElement.duration);
+        }
+        state.audioElement.onloadedmetadata = () => resolve(state.audioElement.duration || 180);
+        setTimeout(() => resolve(state.audioElement.duration || 180), 2000);
+      });
+      state.audioDuration = duration;
+      dom.audioFilename.textContent = file.name;
+      dom.audioDuration.textContent = TimeUtil.toDisplay(duration);
+      dom.timeScrubber.max = duration;
+      dom.dropzonePrompt.style.display = 'none';
+      dom.audioLoadedCard.style.display = 'flex';
+
+      // Step 2: On-device client AI / LRCLIB lyrics search (Zero 4.5MB upload limit!)
+      setAutopilotStep(2, apiKey
+        ? '🧠 2/4: Gemini AI detecting singing language & separating Male [1] / Female [2] / Duet [3]...'
+        : '🌐 2/4: Searching synchronized lyrics database & assigning Male [1] / Female [2]...'
+      );
+
+      const cleanSearchTitle = title
+        .replace(/[\(\[\{].*?[\)\]\}]/g, '')
+        .replace(/\b(?:feat|ft|official|video|audio|lyrics|remix|hd|4k)\b/gi, '')
+        .trim();
+
+      let lrclibData = null;
+      try {
+        const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanSearchTitle || title)}`);
+        if (searchRes.ok) {
+          const items = await searchRes.json();
+          if (Array.isArray(items) && items.length > 0) {
+            lrclibData = items.find(it => it.syncedLyrics) || items[0];
+          }
+        }
+      } catch (err) {
+        console.warn('LRCLIB lookup warning:', err);
+      }
+
+      if (apiKey) {
+        try {
+          const geminiResult = await askGeminiForDuet({
+            title: cleanSearchTitle || title,
+            duration,
+            existingLyrics: lrclibData?.syncedLyrics || lrclibData?.plainLyrics || '',
+            apiKey
+          });
+          if (geminiResult.lyrics) {
+            lyrics = geminiResult.lyrics;
+            language = geminiResult.language || language;
+          }
+        } catch (gErr) {
+          console.warn('Gemini API warning, using LRCLIB:', gErr);
+        }
+      }
+
+      if (!lyrics && lrclibData) {
+        if (lrclibData.syncedLyrics) {
+          lyrics = convertLrcToDuetKaraoke(lrclibData.syncedLyrics, duration);
+          language = detectLanguageFromText(`${cleanSearchTitle} ${lrclibData.trackName || ''} ${lyrics}`);
+        } else if (lrclibData.plainLyrics) {
+          lyrics = convertPlainLyricsToDuet(lrclibData.plainLyrics, duration);
+          language = detectLanguageFromText(`${cleanSearchTitle} ${lrclibData.trackName || ''} ${lyrics}`);
+        }
+      }
+
+      if (!lyrics) {
+        lyrics = generateMelodicDuetCues(cleanSearchTitle || title, duration);
+        language = detectLanguageFromText(cleanSearchTitle || title);
+      }
+
+    } else {
+      // YouTube Mode
+      const url = (dom.ytUrlInput?.value || '').trim();
+      if (!url) {
+        alert('Please paste a YouTube song link first (e.g. https://youtu.be/...)');
+        dom.ytUrlInput?.focus();
+        return;
+      }
+
+      const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      if (isLocalHost) {
+        setAutopilotStep(2, '⚡ 2/4: Ingesting YouTube audio stream & analyzing voices locally...');
+        const res = await fetch('/api/auto-duet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, apiKey })
+        });
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (_) {
+          throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+        }
+        if (!res.ok || data.status === 'error') {
+          throw new Error(data.message || 'Failed to auto-generate duet.');
+        }
+
+        title = data.title;
+        language = data.language || 'Duet Song';
+        duration = data.duration || 180;
+        lyrics = data.lyrics || '';
+
+        state.audioFile = { name: `${title}.mp3`, serverAudioUrl: data.audioUrl };
+        state.audioElement.src = data.audioUrl;
+        dom.audioFilename.textContent = `${title} [${language}]`;
+        dom.dropzonePrompt.style.display = 'none';
+        dom.audioLoadedCard.style.display = 'flex';
+      } else {
+        // Vercel / Cloud Mode: Use oEmbed and direct lyrics search
+        setAutopilotStep(2, '🌐 2/4: Fetching YouTube metadata and synchronized lyrics...');
+        let ytTitle = 'YouTube Duet';
+        try {
+          const oeRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+          if (oeRes.ok) {
+            const oeData = await oeRes.json();
+            ytTitle = oeData.title || ytTitle;
+          }
+        } catch (_) {}
+
+        title = ytTitle.replace(/[\(\[\{].*?[\)\]\}]/g, '').replace(/[\-_]+/g, ' ').trim();
+        const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(title)}`);
+        let lrclibData = null;
+        if (searchRes.ok) {
+          const items = await searchRes.json();
+          if (Array.isArray(items) && items.length > 0) {
+            lrclibData = items.find(it => it.syncedLyrics) || items[0];
+          }
+        }
+
+        duration = lrclibData?.duration || 210;
+        if (apiKey) {
+          try {
+            const gResult = await askGeminiForDuet({
+              title,
+              duration,
+              existingLyrics: lrclibData?.syncedLyrics || lrclibData?.plainLyrics || '',
+              apiKey
+            });
+            if (gResult.lyrics) {
+              lyrics = gResult.lyrics;
+              language = gResult.language || language;
+            }
+          } catch (_) {}
+        }
+
+        if (!lyrics && lrclibData) {
+          if (lrclibData.syncedLyrics) {
+            lyrics = convertLrcToDuetKaraoke(lrclibData.syncedLyrics, duration);
+          } else if (lrclibData.plainLyrics) {
+            lyrics = convertPlainLyricsToDuet(lrclibData.plainLyrics, duration);
+          }
+        }
+
+        if (!lyrics) {
+          lyrics = generateMelodicDuetCues(title, duration);
+        }
+        language = detectLanguageFromText(`${title} ${lyrics}`);
+
+        dom.audioFilename.textContent = `${title} [${language}]`;
+      }
     }
 
     // Step 3: Populate studio state
-    setAutopilotStep(3, `📝 3/4: Detected "${data.language || 'Duet'}"! Arranging anti-overlap 5-section karaoke layout...`);
+    setAutopilotStep(3, `📝 3/4: Detected "${language}"! Arranging anti-overlap 5-section karaoke layout...`);
 
-    state.audioFile = { name: `${data.title}.mp3`, serverAudioUrl: data.audioUrl };
-    state.audioElement.src = data.audioUrl;
-    dom.audioFilename.textContent = `${data.title} [${data.language || 'Duet'}]`;
-    dom.dropzonePrompt.style.display = 'none';
-    dom.audioLoadedCard.style.display = 'flex';
-
-    if (data.lyrics) {
-      dom.lyricsTextarea.value = data.lyrics;
+    if (lyrics) {
+      dom.lyricsTextarea.value = lyrics;
       parseAndUpdateLyrics();
     }
 
-    state.audioElement.onloadedmetadata = () => {
-      state.audioDuration = state.audioElement.duration || data.duration || 30;
-      dom.audioDuration.textContent = TimeUtil.toDisplay(state.audioDuration);
-      dom.timeScrubber.max = state.audioDuration;
-      updateTimeDisplay();
-      renderCanvasFrame(0);
-    };
-
     if (dom.detectedLangBadge) {
-      dom.detectedLangBadge.textContent = `🌐 ${data.language || 'Duet Song'} (Male [1] & Female [2] Assigned)`;
+      dom.detectedLangBadge.textContent = `🌐 ${language} (Male [1] & Female [2] Assigned)`;
       dom.detectedLangBadge.style.display = 'inline-flex';
     }
 
+    renderCanvasFrame(0);
+
     const shouldAutoRender = dom.chkAutoRenderVideo ? dom.chkAutoRenderVideo.checked : true;
 
-    if (shouldAutoRender) {
+    if (shouldAutoRender && state.audioElement.src) {
       setAutopilotStep(4, '🎬 4/4: Auto-Rendering 1080p Universal MP4 Video in one go...');
       await new Promise(r => setTimeout(r, 600));
 
@@ -832,12 +1155,12 @@ async function runOneClickAutoDuet() {
 
       setAutopilotStep(5, '🎉 Complete! Your 1080p Duet Karaoke Video is ready to watch & download!');
     } else {
-      setAutopilotStep(5, `✨ Complete! Lyrics, Male/Female separation and timestamps generated for "${data.title}"!`);
+      setAutopilotStep(5, `✨ Complete! Lyrics, Male/Female separation and timestamps generated for "${title}"!`);
     }
 
   } catch (err) {
     console.error('[1-Click Auto Duet Error]', err);
-    alert(`1-Click Auto Duet Error: ${err.message}`);
+    alert(`1-Click Auto Duet: ${err.message}`);
     setAutopilotStep(0, `❌ ${err.message}`);
   } finally {
     if (dom.btnRunAutopilot) {
