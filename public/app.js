@@ -1,3 +1,4 @@
+
 /**
  * Duet Karaoke Maker - Ultra-Lite Browser Studio
  * 100% Client-Side + Lite Server Integration
@@ -678,7 +679,7 @@ function renderCanvasFrame(t, isCleanExport = false) {
     if (!seg) continue;
 
     const singerColor = seg.colorMode === 1 ? state.color1 :
-                        seg.colorMode === 2 ? state.color2 : state.color3;
+      seg.colorMode === 2 ? state.color2 : state.color3;
 
     renderKaraokeLine(seg, t, seg.yPos, singerColor);
   }
@@ -850,7 +851,7 @@ function togglePlay() {
       if (VocalDspEngine.ctx?.state === 'suspended') {
         VocalDspEngine.ctx.resume();
       }
-      state.audioElement.play().then(() => setPlaybackState(true)).catch(() => {});
+      state.audioElement.play().then(() => setPlaybackState(true)).catch(() => { });
     }
   } else {
     // Demo mode: play / pause demo timeline smoothly
@@ -1826,7 +1827,7 @@ function triggerDirectFileDownload(url, filename) {
   setTimeout(() => {
     try {
       document.body.removeChild(link);
-    } catch (_) {}
+    } catch (_) { }
   }, 400);
 }
 
@@ -1908,7 +1909,7 @@ async function renderVideoLive() {
 
   VocalDspEngine.init(state.audioElement);
   if (VocalDspEngine.ctx?.state === 'suspended') {
-    try { await VocalDspEngine.ctx.resume(); } catch (_) {}
+    try { await VocalDspEngine.ctx.resume(); } catch (_) { }
   }
 
   let recorderStream = null;
@@ -2235,7 +2236,7 @@ function initEventListeners() {
     try {
       const savedKey = localStorage.getItem('duet_gemini_api_key');
       if (savedKey && dom.ytApiKey) dom.ytApiKey.value = savedKey;
-    } catch (_) {}
+    } catch (_) { }
 
     dom.btnToggleYtKey.addEventListener('click', () => {
       if (dom.ytKeyDrawer) {
@@ -2397,11 +2398,11 @@ function initEventListeners() {
     if (isNativeFs) {
       try {
         if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
+          document.exitFullscreen().catch(() => { });
         } else if (document.webkitExitFullscreen) {
           document.webkitExitFullscreen();
         }
-      } catch {}
+      } catch { }
       elem.classList.remove('theater-fullscreen-active');
       document.body.classList.remove('theater-mode-open');
       updateStageFullscreenUI(false);
@@ -2417,9 +2418,9 @@ function initEventListeners() {
 
     // Try native browser element fullscreen; if denied or permission fails, fallback to Theater Mode
     const requestFs = elem.requestFullscreen ||
-                      elem.webkitRequestFullscreen ||
-                      elem.mozRequestFullScreen ||
-                      elem.msRequestFullscreen;
+      elem.webkitRequestFullscreen ||
+      elem.mozRequestFullScreen ||
+      elem.msRequestFullscreen;
 
     if (requestFs) {
       try {
