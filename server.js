@@ -143,8 +143,8 @@ function handleCors(req, res) {
 
   const originLower = origin.toLowerCase();
   const isAllowed = ALLOWED_ORIGINS.includes(originLower) ||
-                    originLower.startsWith('http://localhost:') ||
-                    originLower.startsWith('http://127.0.0.1:');
+    originLower.startsWith('http://localhost:') ||
+    originLower.startsWith('http://127.0.0.1:');
 
   if (isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -333,7 +333,7 @@ const cleanFiles = (...filePaths) => {
     if (fp) {
       try {
         if (fs.existsSync(fp)) fs.unlinkSync(fp);
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 };
@@ -383,10 +383,16 @@ function getFFmpegPath() {
       resolvedFFmpeg = out;
       return resolvedFFmpeg;
     }
-  } catch (_) {}
+  } catch (_) { }
 
-  // 2. Check Windows WinGet packages directory directly
+  // 2. Check Windows WinGet links and packages directory directly
   if (process.platform === 'win32') {
+    const wingetLink = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe');
+    if (fs.existsSync(wingetLink)) {
+      resolvedFFmpeg = wingetLink;
+      return resolvedFFmpeg;
+    }
+
     const wingetPkg = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Packages');
     if (fs.existsSync(wingetPkg)) {
       try {
@@ -404,7 +410,7 @@ function getFFmpegPath() {
             }
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
@@ -885,11 +891,20 @@ const server = http.createServer(async (req, res) => {
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const ext = path.extname(filename).toLowerCase();
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+      let downloadFilename = filename;
+      if (parsedUrl.query && parsedUrl.query.name) {
+        const rawCustom = decodeURIComponent(String(parsedUrl.query.name)).replace(/[\r\n"\\/]/g, '_').trim();
+        if (rawCustom) {
+          downloadFilename = rawCustom.toLowerCase().endsWith(ext) ? rawCustom : `${rawCustom}${ext}`;
+        }
+      }
+
       res.writeHead(200, {
         'Content-Type': contentType,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
-        'Content-Disposition': `attachment; filename="${filename}"`
+        'Content-Disposition': `attachment; filename="${downloadFilename}"`
       });
       fs.createReadStream(filePath).pipe(res);
 

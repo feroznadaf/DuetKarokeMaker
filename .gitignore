@@ -38,6 +38,3 @@ secrets/
 # Editor & Workspace
 .vscode/
 .idea/
-
-.vercel
-.env*

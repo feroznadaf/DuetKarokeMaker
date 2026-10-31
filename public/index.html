@@ -649,12 +649,12 @@ Tip: You can also use the 'Line-by-Line Studio' tab above for visual editing!"><
             <input type="checkbox" id="chk-show-guides">
             <span>Show Slot Coordinates Guide</span>
           </label>
-          <div class="anti-record-badge" id="anti-record-badge" title="Anti-Screen-Recording Shield Active: Real-time preview is protected with a transparent security strip. Official export generates clean unwatermarked video.">
+          <div class="anti-record-badge" id="anti-record-badge" style="display: none;">
             <span class="shield-pulse-dot"></span>
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
-            <span>Anti-Recording Shield: Active</span>
+            <span>Anti-Recording Shield: Inactive</span>
           </div>
           <span class="slot-indicator" id="slot-indicator">Active slots: None</span>
         </div>
@@ -677,9 +677,8 @@ Tip: You can also use the 'Line-by-Line Studio' tab above for visual editing!"><
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
             <span>Download Duet Karaoke Video (.MP4)</span>
-            <span class="token-cost-badge">2 Tokens</span>
           </button>
-          <p class="download-note">Click to render &amp; download clean 1080p MP4. Tokens are deducted only upon file download.</p>
+          <p class="download-note">Click to render &amp; download clean, unwatermarked 1080p MP4. Free download without credit deduction.</p>
         </div>
 
         <!-- Progress Modal / Bar -->
@@ -703,7 +702,7 @@ Tip: You can also use the 'Line-by-Line Studio' tab above for visual editing!"><
             <div class="download-info">
               <div>
                 <strong>Rendering Complete</strong>
-                <p id="download-filename-sub">Your 1080p Duet Karaoke video file is ready. (2 Tokens used on download)</p>
+                <p id="download-filename-sub">Your clean 1080p Duet Karaoke video file is ready for download.</p>
               </div>
             </div>
             <a href="#" class="btn btn-primary btn-lg" id="btn-download-video" download="duet_karaoke_1080p.mp4">
@@ -713,7 +712,6 @@ Tip: You can also use the 'Line-by-Line Studio' tab above for visual editing!"><
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
               <span>Download Video (.MP4)</span>
-              <span class="token-cost-badge" style="background: rgba(255,255,255,0.22); padding: 3px 9px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; margin-left: 8px; letter-spacing: 0.02em;">2 Tokens</span>
             </a>
           </div>
 

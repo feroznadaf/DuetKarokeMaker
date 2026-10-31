@@ -50,15 +50,15 @@ const state = {
   renderedVideoUrl: null,
   renderedVideoFilename: 'duet_karaoke_1080p.mp4',
 
-  // Anti-Screen-Recording Security Shield State
+  // Anti-Screen-Recording Security Shield State (Disabled - 100% Clean Video & Preview)
   antiRecordShield: {
-    enabled: true,
-    showStrip: true,
-    showScanlines: true,
-    watermarkText: 'PREVIEW ONLY • SCREEN RECORDING PROHIBITED',
+    enabled: false,
+    showStrip: false,
+    showScanlines: false,
+    watermarkText: '',
     userStamp: ''
   },
-  isCleanExporting: false
+  isCleanExporting: true
 };
 
 // ==========================================
@@ -662,9 +662,6 @@ function renderCanvasFrame(t, isCleanExport = false) {
     ctx.fillText('Upload an audio file or paste a YouTube song to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 35);
     ctx.restore();
     if (dom.slotIndicator) dom.slotIndicator.textContent = 'Active slots: None';
-    if (!isCleanExport && !state.isCleanExporting) {
-      drawAntiRecordingShield(t);
-    }
     return;
   }
 
@@ -692,120 +689,14 @@ function renderCanvasFrame(t, isCleanExport = false) {
       .map((s, idx) => `Slot ${idx}: ${s ? 'Active' : 'Idle'}`)
       .join(' | ');
   }
-
-  // Draw Anti-Screen-Recording Security Layer across preview canvas
-  if (!isCleanExport && !state.isCleanExporting) {
-    drawAntiRecordingShield(t);
-  }
 }
 
 /**
- * 7.1 DYNAMIC ANTI-SCREEN-RECORDING SECURITY SHIELD
- * Renders an animated semi-transparent frosted security strip across the active
- * lyrics zone, optical encoder micro-scanlines, and dynamic session watermarks.
- * Renders unauthorized screen recordings completely useless for publication,
- * while allowing the creator in-browser to clearly view and synchronize lyrics.
+ * Clean Canvas Engine: Shield and watermarks completely disabled.
  */
 function drawAntiRecordingShield(t) {
-  if (!state.antiRecordShield || !state.antiRecordShield.enabled) return;
-
-  ctx.save();
-
-  // 1. Optical Micro-Scanlines (Causes temporal compression distortion & moiré in video encoders)
-  if (state.antiRecordShield.showScanlines) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
-    for (let y = 0; y < CANVAS_HEIGHT; y += 4) {
-      ctx.fillRect(0, y, CANVAS_WIDTH, 1);
-    }
-  }
-
-  // 2. Translucent Frosted Security Strip across Center Lyrics Zone
-  if (state.antiRecordShield.showStrip) {
-    const stripHeight = 110;
-    const stripY = 485; // Centered at Y=540 across active lyric area
-
-    // A. Frosted semi-transparent dark backdrop
-    const stripGradient = ctx.createLinearGradient(0, stripY, 0, stripY + stripHeight);
-    stripGradient.addColorStop(0, 'rgba(15, 23, 42, 0.52)');
-    stripGradient.addColorStop(0.5, 'rgba(10, 15, 30, 0.62)');
-    stripGradient.addColorStop(1, 'rgba(15, 23, 42, 0.52)');
-    ctx.fillStyle = stripGradient;
-    ctx.fillRect(0, stripY, CANVAS_WIDTH, stripHeight);
-
-    // B. Glowing perimeter border lines
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(99, 102, 241, 0.45)';
-    ctx.beginPath();
-    ctx.moveTo(0, stripY);
-    ctx.lineTo(CANVAS_WIDTH, stripY);
-    ctx.moveTo(0, stripY + stripHeight);
-    ctx.lineTo(CANVAS_WIDTH, stripY + stripHeight);
-    ctx.stroke();
-
-    // C. Angled semi-transparent hazard/security hash lines
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, stripY, CANVAS_WIDTH, stripHeight);
-    ctx.clip();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-    ctx.lineWidth = 10;
-    const spacing = 48;
-    for (let x = -stripHeight; x < CANVAS_WIDTH + stripHeight; x += spacing) {
-      ctx.beginPath();
-      ctx.moveTo(x, stripY);
-      ctx.lineTo(x + stripHeight, stripY + stripHeight);
-      ctx.stroke();
-    }
-
-    // D. Animated dynamic light sweep (prevents AI static watermark inpainting)
-    const sweepProgress = ((t * 260) % (CANVAS_WIDTH + 600)) - 300;
-    const lightSweep = ctx.createLinearGradient(sweepProgress - 160, 0, sweepProgress + 160, 0);
-    lightSweep.addColorStop(0, 'rgba(255, 255, 255, 0)');
-    lightSweep.addColorStop(0.5, 'rgba(255, 255, 255, 0.10)');
-    lightSweep.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = lightSweep;
-    ctx.fillRect(0, stripY, CANVAS_WIDTH, stripHeight);
-
-    ctx.restore();
-
-    // E. High-visibility semi-transparent security typography
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Primary Warning Text (White with shadow)
-    ctx.font = '700 28px "Outfit", "Noto Sans", Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-    ctx.shadowBlur = 6;
-    ctx.fillText('🛡️ PREVIEW ONLY • SCREEN RECORDING PROHIBITED • EXPORT TO REMOVE WATERMARK', CANVAS_WIDTH / 2, stripY + 38);
-
-    // Subtitle & Dynamic Session Stamp
-    const userEmail = (window.KaraokeAuth && window.KaraokeAuth.getCurrentUser && window.KaraokeAuth.getCurrentUser()?.email) || 'GUEST-SESSION';
-    ctx.font = '500 18px "JetBrains Mono", monospace, sans-serif';
-    ctx.fillStyle = 'rgba(224, 231, 255, 0.58)';
-    ctx.fillText(`DUET KARAOKE MAKER • ANTI-PIRACY SHIELD • USER: ${userEmail} • TIME: ${TimeUtil.toDisplay(t)}`, CANVAS_WIDTH / 2, stripY + 75);
-  }
-
-  // 3. Subtle Diagonal Background Watermark
-  ctx.save();
-  ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-  ctx.rotate(-14 * Math.PI / 180);
-  ctx.font = '800 48px "Outfit", sans-serif';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('PROTECTED PREVIEW • DO NOT RECORD • EXPORT FOR 1080P CLEAN VIDEO', 0, -180);
-  ctx.fillText('PROTECTED PREVIEW • DO NOT RECORD • EXPORT FOR 1080P CLEAN VIDEO', 0, 180);
-  ctx.restore();
-
-  // 4. Subtle Corner Stamp
-  ctx.font = '600 20px "Outfit", sans-serif';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-  ctx.textAlign = 'right';
-  ctx.fillText('🔒 LIVE CANVAS PREVIEW — NOT FOR RECORDING', CANVAS_WIDTH - 30, CANVAS_HEIGHT - 25);
-
-  ctx.restore();
+  // Disabled: Clean 1080p output with no watermarks or copyright overlays
+  return;
 }
 
 function renderKaraokeLine(seg, t, yPos, singerColor) {
@@ -1922,7 +1813,11 @@ function syncSegmentsToTextarea() {
 // ==========================================
 function triggerDirectFileDownload(url, filename) {
   const link = document.createElement('a');
-  link.href = url;
+  let finalUrl = url;
+  if (url && url.startsWith('/api/download/') && filename) {
+    finalUrl = url + (url.includes('?') ? '&' : '?') + 'name=' + encodeURIComponent(filename);
+  }
+  link.href = finalUrl;
   link.download = filename || 'duet_karaoke_1080p.mp4';
   link.rel = 'noopener';
   link.style.display = 'none';
@@ -1949,71 +1844,13 @@ async function handleDownloadVideoClick(e) {
     return;
   }
 
-  // If already paid for this exact rendered file, download directly without re-charging
-  if (state.currentRenderPaid) {
-    triggerDirectFileDownload(url, filename);
-    return;
-  }
+  // Mark paid and download directly without credit deduction
+  state.currentRenderPaid = true;
+  triggerDirectFileDownload(url, filename);
 
-  // 1. Strict Auth Guard: User must be signed in to download
-  if (!window.KaraokeAuth || !window.KaraokeAuth.getCurrentUser()) {
-    if (window.KaraokeAuth) {
-      window.KaraokeAuth.openAuthModal('signin', 'Sign In Required: Sign in or create an account to download your 1080p Duet Karaoke video (2 tokens).');
-    } else {
-      alert('Authentication is initializing. Please wait a moment...');
-    }
-    return;
-  }
-
-  // 2. Strict Token Check: User must have at least 2 tokens
-  const currentTokens = window.KaraokeAuth.getCredits ? window.KaraokeAuth.getCredits() : 0;
-  if (currentTokens < 2) {
-    if (window.KaraokeAuth.openOutOfCreditsModal) {
-      window.KaraokeAuth.openOutOfCreditsModal('out_of_tokens');
-    } else {
-      window.location.href = '/pricing?reason=out_of_tokens';
-    }
-    return;
-  }
-
-  // 3. Deduct exactly 2 tokens on download
-  const btn = dom.btnDownloadVideo;
-  const originalHtml = btn ? btn.innerHTML : '';
-  if (btn) {
-    btn.style.pointerEvents = 'none';
-    btn.style.opacity = '0.7';
-  }
-
-  try {
-    const deducted = await window.KaraokeAuth.deductSongCredit(2);
-    if (!deducted) {
-      if (window.KaraokeAuth.openOutOfCreditsModal) {
-        window.KaraokeAuth.openOutOfCreditsModal('out_of_tokens');
-      } else {
-        window.location.href = '/pricing?reason=out_of_tokens';
-      }
-      return;
-    }
-
-    // Mark current render as paid so accidental duplicate clicks don't double charge
-    state.currentRenderPaid = true;
-
-    // Trigger file download
-    triggerDirectFileDownload(url, filename);
-
-    // Update download banner status
-    if (dom.downloadFilenameSub) {
-      dom.downloadFilenameSub.innerHTML = `✓ <strong>2 Tokens Deducted</strong> — Downloading "<strong>${filename}</strong>" now!`;
-    }
-  } catch (err) {
-    console.error('[Download Error]', err);
-    alert('Failed to process download: ' + (err.message || 'Unknown error'));
-  } finally {
-    if (btn) {
-      btn.innerHTML = originalHtml;
-      btn.style.pointerEvents = '';
-      btn.style.opacity = '';
-    }
+  // Update download banner status
+  if (dom.downloadFilenameSub) {
+    dom.downloadFilenameSub.innerHTML = `✓ Downloading "<strong>${filename}</strong>" now!`;
   }
 }
 
@@ -2021,12 +1858,12 @@ const presentRenderedVideo = ({ url, filename, description }) => {
   dom.renderProgressCard.style.display = 'none';
   dom.downloadBanner.style.display = 'flex';
 
-  state.currentRenderPaid = false;
+  state.currentRenderPaid = true;
   state.renderedVideoUrl = url;
   state.renderedVideoFilename = filename || 'duet_karaoke_1080p.mp4';
 
   if (dom.downloadFilenameSub) {
-    dom.downloadFilenameSub.innerHTML = description || `Rendering complete for "<strong>${filename}</strong>"! (2 Tokens deducted on download)`;
+    dom.downloadFilenameSub.innerHTML = description || `Rendering complete for "<strong>${filename}</strong>"! Clean 1080p video ready.`;
   }
 
   dom.btnDownloadVideo.href = url;
@@ -2045,12 +1882,6 @@ const presentRenderedVideo = ({ url, filename, description }) => {
 };
 
 async function renderVideoLive() {
-  // STRICT AUTH GUARD: Must be signed in to render video
-  if (window.KaraokeAuth && !window.KaraokeAuth.getCurrentUser()) {
-    window.KaraokeAuth.openAuthModal('signin', 'Sign In Required: You must be signed in to render karaoke songs!');
-    return;
-  }
-
   if (!state.audioElement.src) {
     alert('Please upload or import an audio file first.');
     return;
@@ -2060,7 +1891,8 @@ async function renderVideoLive() {
     return;
   }
 
-  state.currentRenderPaid = false;
+  state.currentRenderPaid = true;
+  state.isCleanExporting = true;
   state.isRendering = true;
   if (dom.btnRenderLive) dom.btnRenderLive.disabled = true;
   if (dom.btnRenderUniversal) dom.btnRenderUniversal.disabled = true;
@@ -2088,10 +1920,16 @@ async function renderVideoLive() {
     console.warn('[Stream Capture Warning]', e);
   }
 
-  let mimeType = 'video/webm;codecs=vp9,opus';
-  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8,opus';
-  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-  if (MediaRecorder.isTypeSupported('video/mp4')) mimeType = 'video/mp4';
+  const candidateTypes = [
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4;codecs=avc1',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  let mimeType = candidateTypes.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
 
   state.recordedChunks = [];
   if (recorderStream && window.MediaRecorder) {
@@ -2249,12 +2087,6 @@ async function renderVideoLive() {
 }
 
 async function renderVideoWithFfmpeg() {
-  // STRICT AUTH GUARD: Must be signed in to render video
-  if (window.KaraokeAuth && !window.KaraokeAuth.getCurrentUser()) {
-    window.KaraokeAuth.openAuthModal('signin', 'Sign In Required: You must be signed in to render karaoke songs!');
-    return;
-  }
-
   if (!state.ffmpegAvailable) {
     console.info('Server FFmpeg not active; seamlessly rendering via browser studio engine.');
     renderVideoLive();
@@ -2741,85 +2573,11 @@ async function checkServerStatus() {
 // 15. ANTI-SCREEN-RECORDING & CONTENT PROTECTION ENGINE
 // ==========================================
 function initAntiRecordingProtection() {
-  // 1. Prevent context menu & dragging on the canvas and stage wrapper
-  if (dom.canvas) {
-    dom.canvas.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      return false;
-    });
-    dom.canvas.addEventListener('dragstart', (e) => {
-      e.preventDefault();
-      return false;
-    });
-  }
-
-  if (dom.stageWrapper) {
-    dom.stageWrapper.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      return false;
-    });
-  }
-
-  // 2. Protect canvas.toDataURL and canvas.toBlob against scraper scripts / extensions
-  if (window.HTMLCanvasElement) {
-    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    const origToBlob = HTMLCanvasElement.prototype.toBlob;
-
-    HTMLCanvasElement.prototype.toDataURL = function(...args) {
-      if (this.id === 'karaoke-canvas' && !state.isCleanExporting) {
-        console.warn('[Security Shield] Direct canvas frame extraction is restricted during preview.');
-      }
-      return origToDataURL.apply(this, args);
-    };
-
-    HTMLCanvasElement.prototype.toBlob = function(...args) {
-      if (this.id === 'karaoke-canvas' && !state.isCleanExporting) {
-        console.warn('[Security Shield] Direct canvas blob extraction is restricted during preview.');
-      }
-      return origToBlob.apply(this, args);
-    };
-  }
-
-  // 3. Screen Capture & Screen Sharing Active Interception
-  if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-    try {
-      const origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
-      navigator.mediaDevices.getDisplayMedia = async function(...args) {
-        triggerScreenCaptureDetection();
-        const stream = await origGetDisplayMedia(...args);
-        triggerScreenCaptureDetection();
-        stream.getVideoTracks().forEach(track => {
-          track.addEventListener('ended', () => {
-            dismissScreenCaptureDetection();
-          });
-        });
-        return stream;
-      };
-    } catch (_) {}
-  }
-
-  // 4. Tab Visibility Protection: Pause audio if tab is minimized/hidden
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && state.isPlaying) {
-      pauseAudio();
-    }
-  });
-
-  // 5. Dismiss record alert button
-  if (dom.btnDismissRecordAlert) {
-    dom.btnDismissRecordAlert.addEventListener('click', () => {
-      dismissScreenCaptureDetection();
-    });
-  }
+  // Screen protection alerts and watermarks disabled for clean workflow
 }
 
 function triggerScreenCaptureDetection() {
-  if (state.isPlaying) {
-    pauseAudio();
-  }
-  if (dom.canvasRecordAlert) {
-    dom.canvasRecordAlert.style.display = 'flex';
-  }
+  // Disabled
 }
 
 function dismissScreenCaptureDetection() {
