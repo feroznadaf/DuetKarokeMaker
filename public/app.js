@@ -884,6 +884,7 @@ function seekToTime(t) {
 
 function loadAudioFile(file) {
   state.currentRenderPaid = false;
+  state.renderedVideoUrl = null;
   state.audioFile = file;
   state.audioElement.src = URL.createObjectURL(file);
   dom.audioFilename.textContent = file.name;
@@ -1915,20 +1916,26 @@ async function renderVideoLive() {
   let recorderStream = null;
   try {
     const canvasStream = dom.canvas.captureStream(30);
-    const audioTracks = VocalDspEngine.getAudioTracks();
-    recorderStream = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
+    let audioTracks = VocalDspEngine.getAudioTracks();
+    if (!audioTracks || audioTracks.length === 0) {
+      if (state.audioElement && typeof state.audioElement.captureStream === 'function') {
+        audioTracks = state.audioElement.captureStream().getAudioTracks();
+      } else if (state.audioElement && typeof state.audioElement.mozCaptureStream === 'function') {
+        audioTracks = state.audioElement.mozCaptureStream().getAudioTracks();
+      }
+    }
+    recorderStream = new MediaStream([...canvasStream.getVideoTracks(), ...(audioTracks || [])]);
   } catch (e) {
     console.warn('[Stream Capture Warning]', e);
   }
 
   const candidateTypes = [
-    'video/mp4;codecs=avc1,mp4a.40.2',
-    'video/mp4;codecs=avc1',
-    'video/mp4;codecs=h264,aac',
-    'video/mp4',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
-    'video/webm'
+    'video/webm',
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4'
   ];
   let mimeType = candidateTypes.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
 
@@ -2004,6 +2011,9 @@ async function renderVideoLive() {
 
         if (!serverAudioFile && state.audioFile) {
           base64Audio = await readFileAsBase64(state.audioFile);
+        }
+        if (!serverAudioFile && !base64Audio && audioSrc) {
+          base64Audio = await readFileAsBase64(audioSrc);
         }
 
         if (serverAudioFile || base64Audio) {
@@ -2121,7 +2131,12 @@ async function renderVideoWithFfmpeg() {
     }
 
     if (!serverAudioFile) {
-      base64Audio = await readFileAsBase64(state.audioFile);
+      if (state.audioFile) {
+        base64Audio = await readFileAsBase64(state.audioFile);
+      }
+      if (!base64Audio && audioSrc) {
+        base64Audio = await readFileAsBase64(audioSrc);
+      }
       if (!base64Audio) {
         throw new Error('Could not read audio data. Please select or upload an audio file.');
       }
@@ -2167,6 +2182,7 @@ async function renderVideoWithFfmpeg() {
 // ==========================================
 function parseAndUpdateLyrics() {
   state.currentRenderPaid = false;
+  state.renderedVideoUrl = null;
   state.lyricsRaw = dom.lyricsTextarea.value;
   state.segments = parseManualTimestamps(state.lyricsRaw);
   dom.parsedCountBadge.textContent = `${state.segments.length} lines parsed`;

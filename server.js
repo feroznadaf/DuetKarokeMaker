@@ -182,6 +182,7 @@ class RateLimiter {
   }
 
   isAllowed(ip) {
+    if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return true;
     const now = Date.now();
     const records = this.hits.get(ip) || [];
     const valid = records.filter(t => now - t < this.windowMs);
@@ -422,7 +423,7 @@ const checkFFmpeg = () => getFFmpegPath() !== null;
 // ==========================================
 // 7. REQUEST BODY PARSING & LIMITS
 // ==========================================
-const parseJsonBody = (req, maxBytes = 50 * 1024 * 1024) => {
+const parseJsonBody = (req, maxBytes = 350 * 1024 * 1024) => {
   return new Promise((resolve, reject) => {
     let data = '';
     let bytesReceived = 0;
@@ -431,7 +432,7 @@ const parseJsonBody = (req, maxBytes = 50 * 1024 * 1024) => {
       bytesReceived += chunk.length;
       if (bytesReceived > maxBytes) {
         req.destroy();
-        reject(new Error('Payload exceeds maximum allowed size (50MB limit)'));
+        reject(new Error('Payload exceeds maximum allowed size (350MB limit)'));
         return;
       }
       data += chunk;
@@ -483,17 +484,21 @@ const serveStatic = (req, res, pathname) => {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     const isHtml = ext === '.html';
+    const hostHeader = (req.headers.host || '').toLowerCase();
+    const isLocal = hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1');
 
-    // Cloudflare Edge Cache headers:
-    // HTML: revalidate immediately on client, cache 1 hour at Cloudflare Edge
-    // Static assets (CSS, JS, SVG, Fonts): cache 7 days in browser, 30 days at Cloudflare Edge
-    const cacheControl = isHtml
-      ? 'public, max-age=0, s-maxage=3600, must-revalidate'
-      : 'public, max-age=604800, s-maxage=2592000, immutable';
+    // Cache-Control headers:
+    // Local / Dev / HTML: strictly no-cache so latest updates and clean scripts load immediately
+    // Production CDN: max-age=0, must-revalidate
+    const cacheControl = (isLocal || isHtml || NODE_ENV !== 'production')
+      ? 'no-cache, no-store, must-revalidate'
+      : 'public, max-age=0, s-maxage=3600, must-revalidate';
 
     const headers = {
       'Content-Type': contentType,
       'Cache-Control': cacheControl,
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'CDN-Cache-Control': isHtml ? 'max-age=3600' : 'max-age=2592000',
       'Cloudflare-CDN-Cache-Control': isHtml ? 'max-age=3600' : 'max-age=2592000',
       'Vary': 'Accept-Encoding'

@@ -8,7 +8,15 @@ echo     Target: https://github.com/firoznadafsnabbit/duetkarokemaker
 echo ===================================================
 echo.
 
-set "GIT_CMD=C:\Users\firoz\AppData\Local\Microsoft\WinGet\Packages\Git.MinGit_Microsoft.Winget.Source_8wekyb3d8bbwe\cmd\git.exe"
+set "GIT_CMD=git"
+where git >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    if exist "C:\Program Files\Git\cmd\git.exe" (
+        set "GIT_CMD=C:\Program Files\Git\cmd\git.exe"
+    ) else if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\git.exe" (
+        set "GIT_CMD=%LOCALAPPDATA%\Microsoft\WinGet\Links\git.exe"
+    )
+)
 
 "%GIT_CMD%" push origin main
 
