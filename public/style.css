@@ -3003,17 +3003,26 @@ input[type="color"]::-webkit-color-swatch {
 @media (max-width: 768px) {
   body {
     font-size: 14px;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .app-container {
-    padding: 10px 10px 24px;
+    padding: 8px 8px 24px;
     gap: 12px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   .preview-panel {
-    padding: 20px 16px;
-    border-radius: 18px;
-    margin: 12px 0 20px 0;
+    padding: 14px 10px;
+    border-radius: 16px;
+    margin: 10px 0 16px 0;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* Compact Touch Header */
@@ -3021,90 +3030,583 @@ input[type="color"]::-webkit-color-swatch {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-    padding: 12px 14px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
   }
 
   .brand {
     justify-content: space-between;
+    width: 100%;
   }
 
   .brand-text h1 {
-    font-size: 1.15rem;
+    font-size: 1.12rem;
+  }
+
+  .brand-sub {
+    font-size: 0.68rem;
+  }
+
+  /* Scrollable touch navigation bar */
+  .app-nav {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 3px;
+    gap: 4px;
+    justify-content: flex-start;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .header-status {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     width: 100%;
     gap: 8px;
   }
 
+  .user-auth-bar {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .btn-auth-trigger {
+    width: 100%;
+    justify-content: center;
+    min-height: 40px;
+    font-size: 0.84rem;
+  }
+
+  .user-profile-chip {
+    width: 100%;
+    justify-content: space-between;
+  }
   .system-chip {
-    padding: 4px 10px;
-    font-size: 0.74rem;
+    padding: 4px 8px;
+    font-size: 0.7rem;
   }
 
   .btn-sm {
     padding: 6px 10px;
-    font-size: 0.74rem;
+    font-size: 0.75rem;
+    min-height: 36px;
   }
 
   /* Panels */
   .panel {
-    padding: 14px 12px;
-    border-radius: var(--radius-lg);
-    gap: 16px;
+    padding: 14px 10px;
+    border-radius: var(--radius-md);
+    gap: 14px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .section-title-row {
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .section-title-row h2 {
-    font-size: 0.98rem;
+    font-size: 0.96rem;
+  }
+
+  .studio-fullwidth-badge {
+    display: none;
   }
 
   /* Step 1: 1-Click Studio */
   .autopilot-hero-card {
-    padding: 14px 12px;
+    padding: 12px 10px;
     gap: 10px;
   }
 
   .autopilot-desc {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
+  }
+
+  .autopilot-source-tabs {
+    display: flex;
+    width: 100%;
+    gap: 6px;
   }
 
   .source-tab {
+    flex: 1;
     padding: 8px 6px;
-    font-size: 0.76rem;
-    min-height: 40px;
+    font-size: 0.74rem;
+    min-height: 44px;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .source-tab-pill {
+    display: none;
+  }
+
+  .yt-speed-advisory {
+    font-size: 0.74rem;
+    padding: 8px 10px;
+  }
+
+  .yt-input-group {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
   }
 
   .yt-input {
-    font-size: 16px; /* Prevents auto-zoom on iOS */
+    font-size: 16px !important; /* Prevents auto-zoom on iOS */
     padding: 10px 12px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  #btn-fetch-yt {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+    font-size: 0.85rem;
   }
 
   .dropzone {
-    padding: 14px 10px;
+    padding: 18px 12px;
+    min-height: 120px;
   }
 
   .dropzone-text {
     font-size: 0.85rem;
   }
 
+  .dropzone-sub {
+    font-size: 0.72rem;
+  }
+
   .btn-autopilot {
     padding: 12px 14px;
     font-size: 0.88rem;
-    min-height: 46px;
+    min-height: 48px;
+    width: 100%;
   }
 
-  /* Audio player bar touch friendly */
-  .audio-player-bar {
-    flex-wrap: wrap;
+  /* Step 2: Duet Colors Grid */
+  .duet-colors-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+  }
+
+  .color-card {
+    padding: 6px 5px;
+    gap: 5px;
+  }
+
+  .color-header {
+    gap: 2px;
+  }
+
+  .color-tag-pill {
+    font-size: 0.65rem;
+    padding: 1px 3px;
+  }
+
+  .color-label {
+    font-size: 0.68rem;
+  }
+
+  .color-input-wrapper {
+    gap: 4px;
+    width: 100%;
+  }
+
+  input[type="color"] {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    border-radius: 4px;
+  }
+
+  .hex-input {
+    font-size: 16px !important; /* iOS zoom prevention */
+    padding: 4px 2px;
+    letter-spacing: 0;
+    width: 100%;
+  }
+
+  .font-size-row {
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
     padding: 10px 12px;
   }
 
-  .time-display {
+  .font-size-slider-wrap {
+    width: 100%;
+  }
+
+  /* Step 3: Lyrics Studio Header & Tabs */
+  .lyrics-header-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .lyrics-header-actions {
+    width: 100%;
+    margin-left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mode-toggles {
+    width: 100%;
+    display: flex;
+    gap: 3px;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 3px;
+  }
+
+  .mode-btn {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 4px;
+    font-size: 0.72rem;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+
+  .btn-fullscreen-lyrics {
+    width: 100%;
+    justify-content: center;
+    min-height: 38px;
+    font-size: 0.78rem;
+  }
+
+  .quick-tags-bar {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .tag-insert-btn {
+    padding: 6px 10px;
     font-size: 0.75rem;
+    min-height: 36px;
+    flex: 1 1 calc(25% - 5px);
+    text-align: center;
+    justify-content: center;
+  }
+
+  .lyrics-input {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
+    padding: 10px;
+    min-height: 180px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .lyrics-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  /* Interactive Line Builder Panel (Touch Optimizations) */
+  .line-builder-panel {
+    padding: 12px 10px;
+    gap: 10px;
+  }
+
+  .builder-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .builder-voice-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .voice-pills-group {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .voice-pill {
+    flex: 1 1 calc(33.33% - 4px);
+    min-width: 85px;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 4px;
+    font-size: 0.72rem;
+    min-height: 38px;
+  }
+
+  .builder-text-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .builder-input-line {
+    font-size: 16px !important; /* Prevents iOS auto-zoom */
+    padding: 10px 12px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .builder-times-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .builder-time-card {
+    padding: 10px 10px;
+  }
+
+  .time-val-input {
+    font-size: 16px !important;
+    height: 38px;
+    width: 75px;
+  }
+
+  .btn-nudge {
+    min-width: 44px;
+    min-height: 38px;
+    font-size: 0.82rem;
+  }
+
+  .btn-sync-time {
+    padding: 6px 10px;
+    font-size: 0.74rem;
+    min-height: 34px;
+  }
+
+  .builder-footer-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .builder-audition-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #btn-audition-range {
+    width: 100%;
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  .dur-presets {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .btn-dur-chip {
+    flex: 1;
+    min-height: 34px;
+    padding: 4px 6px;
+    font-size: 0.75rem;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .btn-submit-line {
+    width: 100%;
+    min-height: 46px;
+    font-size: 0.92rem;
+    justify-content: center;
+  }
+
+  /* Line-by-Line Studio List Rows (Responsive Card Layout for Mobile) */
+  .line-manager-panel {
+    padding: 10px 6px;
+  }
+
+  .line-manager-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .line-manager-list {
+    max-height: 520px;
+    padding-right: 2px;
+    gap: 10px;
+  }
+
+  .line-item-row {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 8px;
+    border-radius: var(--radius-md);
+    background: rgba(14, 20, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+
+  .line-index-badge {
+    min-width: 22px;
+    font-size: 0.72rem;
+  }
+
+  .line-voice-select {
+    font-size: 16px !important;
+    padding: 4px 6px;
+    height: 34px;
+  }
+
+  .line-time-group {
+    gap: 2px;
+  }
+
+  .line-time-input-sm {
+    width: 58px;
+    font-size: 16px !important;
+    height: 32px;
+    padding: 2px;
+  }
+
+  .line-btn-mini {
+    min-width: 28px;
+    min-height: 32px;
+    padding: 4px 4px;
+    font-size: 0.72rem;
+  }
+
+  .line-dur-badge {
+    font-size: 0.68rem;
+    padding: 2px 5px;
+  }
+
+  .line-text-input-main {
+    order: 10;
+    width: 100% !important;
+    min-width: 100% !important;
+    font-size: 16px !important; /* Critical for iOS keyboard focus */
+    padding: 9px 10px;
+    border-radius: 6px;
+    margin-top: 4px;
+    background: #060a12;
+  }
+
+  .line-btn-action {
+    padding: 6px 10px;
+    min-height: 34px;
+    min-width: 34px;
+    font-size: 0.8rem;
+  }
+
+  /* Tap to Sync Mobile Mode */
+  .tap-sync-action-bar {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #btn-tap-sync-action {
+    width: 100%;
+    min-height: 54px;
+    font-size: 1.05rem;
+  }
+
+  #btn-tap-sync-reset {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  /* Live Preview Screen (16:9 Responsive Canvas) */
+  .preview-panel {
+    padding: 14px 10px;
+    border-radius: 16px;
+    margin: 10px 0 16px 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .preview-title-box h2 {
+    font-size: 1.05rem;
+  }
+
+  .canvas-stage-wrapper {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    margin: 12px 0 16px 0;
+  }
+
+  #karaoke-canvas {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+    display: block;
+  }
+
+  .canvas-control-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 6px 2px;
+  }
+
+  .canvas-control-strip > div,
+  .canvas-control-strip > label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Mobile Audio Player Bar */
+  .audio-player-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 10px;
+    border-radius: 12px;
+    margin: 6px 0 16px 0;
+  }
+
+  .player-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .time-display {
+    font-size: 0.72rem;
+    min-width: 95px;
   }
 
   .scrubber-container {
@@ -3115,136 +3617,79 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .scrubber {
-    height: 10px;
+    height: 12px;
   }
 
-  /* Step 2: Duet Colors Grid */
-  .duet-colors-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+  .speed-select {
+    font-size: 16px !important;
+    height: 34px;
   }
 
-  .color-card {
-    padding: 7px 6px;
-    gap: 6px;
+  /* Download & Video Export Area */
+  .download-panel {
+    padding: 14px 10px;
   }
 
-  .color-header {
-    gap: 4px;
+  .download-action-card {
+    padding: 14px 10px;
   }
 
-  .color-tag-pill {
-    font-size: 0.68rem;
-    padding: 2px 4px;
-  }
-
-  .color-label {
-    font-size: 0.7rem;
-  }
-
-  .color-input-wrapper {
-    gap: 4px;
-  }
-
-  input[type="color"] {
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    max-width: 26px;
-  }
-
-  .hex-input {
-    font-size: 0.72rem;
-    padding: 4px 2px;
-    letter-spacing: 0;
-  }
-
-  .font-size-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  /* Step 3: Lyrics & Tags */
-  .quick-tags-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tag-insert-btn {
-    padding: 6px 10px;
-    font-size: 0.74rem;
-    min-height: 34px;
-  }
-
-  .lyrics-input {
-    font-size: 16px; /* Prevents auto-zoom on iOS */
-    padding: 10px;
-    min-height: 180px;
-  }
-
-  .lyrics-footer {
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: space-between;
-  }
-
-  /* Right Column: Live Canvas Preview */
-  .canvas-stage-wrapper {
+  .download-main-btn {
     width: 100%;
-    aspect-ratio: 16 / 9;
-    border-radius: var(--radius-sm);
-  }
-
-  #karaoke-canvas {
-    width: 100% !important;
-    height: auto !important;
-    aspect-ratio: 16 / 9;
-  }
-
-  .export-card {
-    padding: 14px 12px;
-  }
-
-  .compatibility-tags {
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .compat-tag {
-    font-size: 0.68rem;
-    padding: 2px 6px;
-  }
-
-  .btn-lg {
+    min-height: 52px;
+    font-size: 0.94rem;
     padding: 12px 14px;
-    font-size: 0.88rem;
-    min-height: 44px;
+    justify-content: center;
+  }
+
+  .download-note {
+    font-size: 0.74rem;
+    text-align: center;
   }
 
   .download-banner {
-    padding: 14px 12px;
+    padding: 12px 10px;
   }
 
   .download-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 10px;
   }
 
   #btn-download-video {
     width: 100%;
+    min-height: 48px;
+    font-size: 0.92rem;
     justify-content: center;
   }
 
   #rendered-video-player {
-    max-height: 240px;
+    max-height: 220px;
+    width: 100%;
+  }
+
+  /* Modals on Mobile */
+  .modal-card {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+    padding: 18px 14px !important;
+    margin: 8px !important;
+  }
+
+  .modal-body {
+    font-size: 0.84rem;
   }
 }
 
-/* Very narrow mobile devices (320px - 420px) */
-@media (max-width: 420px) {
+/* Very narrow mobile devices (320px - 480px) */
+@media (max-width: 480px) {
+  .app-container {
+    padding: 6px 6px 20px;
+  }
+
   .duet-colors-grid {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -3254,7 +3699,7 @@ input[type="color"]::-webkit-color-swatch {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: 8px 10px;
   }
 
   .color-input-wrapper {
@@ -3263,11 +3708,28 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .hex-input {
-    width: 75px;
+    width: 80px;
   }
 
   .autopilot-source-tabs {
     flex-direction: column;
+  }
+
+  .voice-pill {
+    flex: 1 1 100%;
+  }
+
+  .dur-presets {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .btn-dur-chip {
+    flex: 1 1 calc(33.33% - 4px);
+  }
+
+  .line-item-row {
+    padding: 8px 6px;
   }
 }
 
