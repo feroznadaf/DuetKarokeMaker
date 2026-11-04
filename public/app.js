@@ -241,12 +241,14 @@ const TimeUtil = {
 
   toAss(seconds) {
     if (!seconds || seconds < 0 || isNaN(seconds)) return '0:00:00.00';
-    const hrs = Math.floor(seconds / 3600);
-    const remainder = seconds % 3600;
-    const mins = Math.floor(remainder / 60);
-    const secs = remainder % 60;
-    const cs = Math.round((secs - Math.floor(secs)) * 100);
-    return `${hrs}:${String(mins).padStart(2, '0')}:${String(Math.floor(secs)).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+    const totalCs = Math.max(0, Math.round(seconds * 100));
+    const cs = totalCs % 100;
+    const totalSecs = Math.floor(totalCs / 100);
+    const secs = totalSecs % 60;
+    const totalMins = Math.floor(totalSecs / 60);
+    const mins = totalMins % 60;
+    const hrs = Math.floor(totalMins / 60);
+    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
   },
 
   toCentiseconds(seconds) {
@@ -593,8 +595,8 @@ function parseManualTimestamps(text) {
 // 6. ASS SUBTITLE GENERATOR
 // ==========================================
 function generateAssSubtitle() {
-  const fontName = 'Noto Sans, Arial, sans-serif';
-  const fontSize = parseInt(state.fontSize, 10);
+  const fontName = 'Arial';
+  const fontSize = Math.max(36, parseInt(state.fontSize, 10) || 48);
   const [c1, c2, c3] = [hexToAssColor(state.color1), hexToAssColor(state.color2), hexToAssColor(state.color3)];
 
   let ass = `[Script Info]
@@ -615,14 +617,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   state.segments.forEach((seg, i) => {
     const startStr = TimeUtil.toAss(seg.appear);
     const endStr = TimeUtil.toAss(seg.disappear);
-    const yPos = 324 + ((i % 3) * 216);
+    const slotIdx = seg.slot !== undefined ? seg.slot : (i % 3);
+    const yPos = SLOT_Y_POSITIONS[slotIdx] || (324 + (slotIdx * 216));
     const posTag = `{\\pos(960,${yPos})}`;
 
     const leadInCs = TimeUtil.toCentiseconds(seg.start - seg.appear);
     let textToDisplay = leadInCs > 0 ? `{\\k${leadInCs}}` : '';
 
     let curTime = seg.start;
-    for (const w of seg.words) {
+    for (const w of (seg.words || [])) {
       const wStart = w.start;
       const wEnd = w.end || (curTime + 0.1);
       const wText = (w.word || '').trim();
@@ -631,7 +634,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const gapCs = TimeUtil.toCentiseconds(wStart - curTime);
       if (gapCs > 0) textToDisplay += `{\\k${gapCs}}`;
 
-      const durationCs = TimeUtil.toCentiseconds(wEnd - wStart);
+      const durationCs = Math.max(1, TimeUtil.toCentiseconds(wEnd - wStart));
       textToDisplay += `{\\kf${durationCs}}${wText} `;
       curTime = wEnd;
     }
@@ -759,23 +762,7 @@ function drawWord(wm, x, y, fontSize, singerColor, t) {
   }
 }
 
-function animationLoop() {
-  if (state.isPlaying && state.audioElement) {
-    state.currentTime = state.audioElement.currentTime;
-    dom.timeScrubber.value = state.currentTime;
-    updateTimeDisplay();
-  }
-  renderCanvasFrame(state.currentTime);
-  requestAnimationFrame(animationLoop);
 }
-
-function updateTimeDisplay() {
-  dom.timeDisplay.textContent = `${TimeUtil.toDisplay(state.currentTime)} / ${TimeUtil.toDisplay(state.audioDuration)}`;
-  if (dom.builderLiveSongTime) {
-    dom.builderLiveSongTime.textContent = TimeUtil.toDisplay(state.currentTime);
-  }
-}
-
 // ==========================================
 // 8. AUDIO ENGINE & PLAYBACK CONTROLS
 // ==========================================
@@ -2043,12 +2030,35 @@ async function renderVideoLive() {
     // Fallback: Convert via server FFmpeg if direct render failed
     if (!finalVideoUrl && state.ffmpegAvailable && recordedBlob.size > 0) {
       try {
-        dom.renderStatusText.textContent = 'Converting video recording...';
+        dom.renderStatusText.textContent = 'Muxing AAC audio into 1080p MP4...';
         const videoBase64 = await readFileAsBase64(recordedBlob);
+
+        let serverAudioFile = null;
+        let base64Audio = '';
+        const audioSrc = state.audioElement?.src || '';
+        if (state.audioFile?.serverAudioUrl) {
+          serverAudioFile = state.audioFile.serverAudioUrl;
+        } else if (audioSrc.includes('/api/download/')) {
+          serverAudioFile = audioSrc;
+        }
+        if (!serverAudioFile && state.audioFile) {
+          base64Audio = await readFileAsBase64(state.audioFile);
+        }
+        if (!serverAudioFile && !base64Audio && audioSrc) {
+          base64Audio = await readFileAsBase64(audioSrc);
+        }
+        const ext = (state.audioFile?.name ? state.audioFile.name.split('.').pop() : '') || 'mp3';
+
         const resp = await fetch('/api/convert-recording', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ videoBase64, mimeType })
+          body: JSON.stringify({
+            videoBase64,
+            mimeType,
+            audioBase64: base64Audio,
+            audioExt: ext,
+            serverAudioFile
+          })
         });
         const res = await resp.json();
         if (res.success && res.downloadUrl) {
@@ -2065,7 +2075,7 @@ async function renderVideoLive() {
       isUniversalMp4 = mimeType.includes('mp4');
     }
 
-    const baseName = state.audioFile ? state.audioFile.name.replace(/\.[^/.]+$/, '') : 'duet_song';
+    const baseName = state.audioFile ? (state.audioFile.name || 'duet_song').replace(/\.[^/.]+$/, '') : 'duet_song';
     const ext = isUniversalMp4 ? 'mp4' : 'webm';
     const filename = `${baseName}_duet_karaoke_1080p.${ext}`;
 
@@ -2074,6 +2084,9 @@ async function renderVideoLive() {
       filename,
       description: `Rendering complete for "${filename}"! Exactly as seen in the Live Canvas Preview. Click below to download.`
     });
+
+    // Auto trigger direct file download for seamless user experience
+    triggerDirectFileDownload(finalVideoUrl, filename);
 
     if (dom.btnRenderLive) dom.btnRenderLive.disabled = false;
     if (dom.btnRenderUniversal) dom.btnRenderUniversal.disabled = false;
@@ -2103,8 +2116,8 @@ async function renderVideoWithFfmpeg() {
     renderVideoLive();
     return;
   }
-  if (!state.audioFile) {
-    alert('Please upload an audio file first.');
+  if (!state.audioFile && (!state.audioElement || !state.audioElement.src)) {
+    alert('Please upload an audio file or import a YouTube track first.');
     return;
   }
   if (state.segments.length === 0) {
@@ -2112,12 +2125,13 @@ async function renderVideoWithFfmpeg() {
     return;
   }
 
-  state.currentRenderPaid = false;
+  state.currentRenderPaid = true;
+  state.isCleanExporting = true;
   dom.renderProgressCard.style.display = 'flex';
-  dom.renderStatusText.textContent = 'Generating Universal MP4 video...';
-  dom.renderPercentageText.textContent = 'Encoding H.264 High 4.1 + Faststart...';
-  dom.progressBarFill.style.width = '65%';
-  dom.renderEta.textContent = 'Rendering directly via server FFmpeg... Download button will be provided on completion.';
+  dom.renderStatusText.textContent = 'Generating 1080p MP4 with AAC Audio...';
+  dom.renderPercentageText.textContent = 'Rendering...';
+  dom.progressBarFill.style.width = '75%';
+  dom.renderEta.textContent = 'Rendering 1080p video with pristine AAC audio and synchronized lyrics via server FFmpeg...';
 
   try {
     let serverAudioFile = null;
@@ -2160,20 +2174,25 @@ async function renderVideoWithFfmpeg() {
     dom.renderProgressCard.style.display = 'none';
 
     if (res.success && res.downloadUrl) {
-      const baseName = state.audioFile ? state.audioFile.name.replace(/\.[^/.]+$/, '') : 'duet_song';
-      const filename = `${baseName}_universal_1080p.mp4`;
+      const baseName = state.audioFile ? (state.audioFile.name || 'duet_song').replace(/\.[^/.]+$/, '') : 'duet_song';
+      const filename = `${baseName}_duet_karaoke_1080p.mp4`;
 
       presentRenderedVideo({
         url: res.downloadUrl,
         filename,
-        description: `Ready: ${filename} (100% playable on Mobile, Laptop, Tab, TV & WhatsApp). Click below to download.`
+        description: `Ready: ${filename} (1080p Full HD MP4 with synchronized AAC audio). Click below to download.`
       });
+
+      // Automatically trigger direct file download
+      triggerDirectFileDownload(res.downloadUrl, filename);
     } else {
-      alert(`FFmpeg render error: ${res.error || 'Unknown error'}`);
+      console.warn('Server FFmpeg render notice, falling back to browser studio engine:', res.error);
+      renderVideoLive();
     }
   } catch (err) {
+    console.warn('Server render notice, falling back to live recording:', err);
     dom.renderProgressCard.style.display = 'none';
-    alert(`Server communication error: ${err.message}`);
+    renderVideoLive();
   }
 }
 
@@ -2519,15 +2538,16 @@ function initEventListeners() {
   dom.btnRenderLive?.addEventListener('click', () => renderVideoLive());
   dom.btnRenderUniversal?.addEventListener('click', () => {
     // If video is already rendered and ready, download directly
-    if (state.renderedVideoUrl && state.currentRenderPaid) {
+    if (state.renderedVideoUrl) {
+      state.currentRenderPaid = true;
       triggerDirectFileDownload(state.renderedVideoUrl, state.renderedVideoFilename);
       return;
     }
-    if (state.renderedVideoUrl && !state.currentRenderPaid) {
-      handleDownloadVideoClick();
-      return;
+    if (state.ffmpegAvailable) {
+      renderVideoWithFfmpeg();
+    } else {
+      renderVideoLive();
     }
-    renderVideoWithFfmpeg();
   });
   dom.btnRenderBrowser?.addEventListener('click', () => renderVideoLive());
   dom.btnRenderFfmpeg?.addEventListener('click', () => renderVideoWithFfmpeg());

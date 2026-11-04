@@ -698,10 +698,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const safeExt = String(audioExt || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const ALLOWED_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'flac'];
-      if (!ALLOWED_EXTS.includes(safeExt)) {
-        return sendError(res, 400, 'Unsupported audio file format.');
-      }
+      const ALLOWED_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus', 'webm', 'mp4'];
+      const finalExt = ALLOWED_EXTS.includes(safeExt) ? safeExt : 'mp3';
 
       const jobId = generateJobId('karaoke');
       let audioPath = '';
@@ -710,9 +708,9 @@ const server = http.createServer(async (req, res) => {
       const filesToClean = [assPath];
 
       if (serverAudioFile) {
-        const fname = path.basename(String(serverAudioFile));
+        const fname = path.basename(String(serverAudioFile).split('?')[0]);
         // Verify filename pattern
-        if (/^[a-zA-Z0-9_\-.]+\.(mp3|wav|ogg|m4a|flac)$/.test(fname)) {
+        if (/^[a-zA-Z0-9_\-.]+\.(mp3|wav|ogg|m4a|flac|aac|opus|webm|mp4)$/.test(fname)) {
           const candidatePath = path.join(TEMP_DIR, fname);
           if (fs.existsSync(candidatePath)) {
             audioPath = candidatePath;
@@ -721,7 +719,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (!audioPath && audioBase64) {
-        audioPath = path.join(TEMP_DIR, `${jobId}.${safeExt}`);
+        audioPath = path.join(TEMP_DIR, `${jobId}.${finalExt}`);
         fs.writeFileSync(audioPath, decodeBase64Payload(audioBase64));
         filesToClean.push(audioPath);
       }
@@ -738,7 +736,9 @@ const server = http.createServer(async (req, res) => {
         '-f', 'lavfi',
         '-i', 'color=c=black:s=1920x1080:r=30',
         '-i', audioPath,
-        '-vf', `ass='${assPathEscaped}'`,
+        '-filter_complex', `[0:v]ass='${assPathEscaped}'[v]`,
+        '-map', '[v]',
+        '-map', '1:a:0',
         '-shortest',
         ...UNIVERSAL_MP4_ARGS,
         outputPath
@@ -775,7 +775,7 @@ const server = http.createServer(async (req, res) => {
 
     try {
       const body = await parseJsonBody(req);
-      const { videoBase64, mimeType } = body;
+      const { videoBase64, mimeType, audioBase64, audioExt, serverAudioFile } = body;
 
       if (!videoBase64) {
         return sendError(res, 400, 'Missing recorded video data.');
@@ -785,18 +785,53 @@ const server = http.createServer(async (req, res) => {
       const inputExt = (mimeType && mimeType.includes('mp4')) ? 'mp4' : 'webm';
       const inputPath = path.join(TEMP_DIR, `${jobId}_raw.${inputExt}`);
       const outputPath = path.join(TEMP_DIR, `${jobId}.mp4`);
+      const filesToClean = [inputPath];
 
       fs.writeFileSync(inputPath, decodeBase64Payload(videoBase64));
 
-      const ffmpegArgs = [
-        '-y',
-        '-i', inputPath,
-        ...UNIVERSAL_MP4_ARGS,
-        outputPath
-      ];
+      let audioPath = '';
+      if (serverAudioFile) {
+        const fname = path.basename(String(serverAudioFile).split('?')[0]);
+        if (/^[a-zA-Z0-9_\-.]+\.(mp3|wav|ogg|m4a|flac|aac|opus|webm|mp4)$/.test(fname)) {
+          const candidatePath = path.join(TEMP_DIR, fname);
+          if (fs.existsSync(candidatePath)) {
+            audioPath = candidatePath;
+          }
+        }
+      }
+
+      if (!audioPath && audioBase64) {
+        const safeExt = String(audioExt || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ALLOWED_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus', 'webm', 'mp4'];
+        const finalExt = ALLOWED_EXTS.includes(safeExt) ? safeExt : 'mp3';
+        audioPath = path.join(TEMP_DIR, `${jobId}_rec_audio.${finalExt}`);
+        fs.writeFileSync(audioPath, decodeBase64Payload(audioBase64));
+        filesToClean.push(audioPath);
+      }
+
+      let ffmpegArgs = [];
+      if (audioPath && fs.existsSync(audioPath)) {
+        ffmpegArgs = [
+          '-y',
+          '-i', inputPath,
+          '-i', audioPath,
+          '-map', '0:v:0',
+          '-map', '1:a:0',
+          '-shortest',
+          ...UNIVERSAL_MP4_ARGS,
+          outputPath
+        ];
+      } else {
+        ffmpegArgs = [
+          '-y',
+          '-i', inputPath,
+          ...UNIVERSAL_MP4_ARGS,
+          outputPath
+        ];
+      }
 
       console.log(`[FFmpeg] Converting recorded canvas video ${jobId} to universal MP4...`);
-      await execProcess(getFFmpegPath() || 'ffmpeg', ffmpegArgs, { tempFilesToClean: [inputPath] });
+      await execProcess(getFFmpegPath() || 'ffmpeg', ffmpegArgs, { tempFilesToClean: filesToClean });
 
       if (fs.existsSync(outputPath)) {
         return sendJson(res, 200, {
