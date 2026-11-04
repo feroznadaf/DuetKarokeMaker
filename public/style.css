@@ -5080,24 +5080,6 @@ input[type="color"]::-webkit-color-swatch {
   max-width: 380px;
 }
 
-.footer-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.footer-tag {
-  display: inline-block;
-  padding: 3px 8px;
-  background-color: #10141e;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #38bdf8;
-}
-
 .footer-heading {
   font-size: 0.95rem;
   font-weight: 700;
