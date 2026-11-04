@@ -762,7 +762,6 @@ function drawWord(wm, x, y, fontSize, singerColor, t) {
   }
 }
 
-}
 // ==========================================
 // 8. AUDIO ENGINE & PLAYBACK CONTROLS
 // ==========================================
