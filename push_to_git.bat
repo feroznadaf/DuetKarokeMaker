@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo ===================================================
 echo     Pushing Duet Karaoke Maker to GitHub
-echo     Target: https://github.com/firoznadafsnabbit/duetkarokemaker
+echo     Target: https://github.com/feroznadaf/DuetKarokeMaker
 echo ===================================================
 echo.
 
