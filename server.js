@@ -74,17 +74,22 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-// Universal H.264 High 4.1 + AAC + Faststart encoding preset
+// Universal H.264 High 4.1 + AAC + Faststart + CFR 30fps + Rec.709 Color + GOP 60 (NLE / Premiere / DaVinci editing ready)
 const UNIVERSAL_MP4_ARGS = [
   '-c:v', 'libx264',
   '-preset', 'veryfast',
   '-profile:v', 'high',
   '-level', '4.1',
   '-pix_fmt', 'yuv420p',
+  '-r', '30',
+  '-fps_mode', 'cfr',
+  '-x264-params', 'colorprim=bt709:transfer=bt709:colormatrix=bt709:fullrange=off:keyint=60:min-keyint=30',
   '-c:a', 'aac',
   '-b:a', '192k',
   '-ar', '44100',
   '-ac', '2',
+  '-channel_layout', 'stereo',
+  '-brand', 'mp42',
   '-movflags', '+faststart'
 ];
 
@@ -104,7 +109,9 @@ function getClientIp(req) {
     const ips = xForwarded.split(',');
     return ips[0].trim();
   }
-  return req.socket?.remoteAddress || '127.0.0.1';
+  let raw = req.socket?.remoteAddress || '127.0.0.1';
+  if (raw.startsWith('::ffff:')) raw = raw.substring(7);
+  return raw;
 }
 
 function hashIpForLog(ip) {
@@ -182,7 +189,7 @@ class RateLimiter {
   }
 
   isAllowed(ip) {
-    if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return true;
+    if (!ip || ip === '127.0.0.1' || ip === '::1' || ip === 'localhost' || ip.includes('127.0.0.1')) return true;
     const now = Date.now();
     const records = this.hits.get(ip) || [];
     const valid = records.filter(t => now - t < this.windowMs);
@@ -419,6 +426,49 @@ function getFFmpegPath() {
 }
 
 const checkFFmpeg = () => getFFmpegPath() !== null;
+
+let resolvedFFprobe = null;
+
+function getFFprobePath() {
+  if (resolvedFFprobe && fs.existsSync(resolvedFFprobe)) return resolvedFFprobe;
+
+  const ffmpeg = getFFmpegPath();
+  if (ffmpeg) {
+    const dir = path.dirname(ffmpeg);
+    const candidate = path.join(dir, process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+    if (fs.existsSync(candidate)) {
+      resolvedFFprobe = candidate;
+      return resolvedFFprobe;
+    }
+  }
+
+  try {
+    const cmd = process.platform === 'win32' ? 'where ffprobe' : 'which ffprobe';
+    const out = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split(/\r?\n/)[0].trim();
+    if (out && fs.existsSync(out)) {
+      resolvedFFprobe = out;
+      return resolvedFFprobe;
+    }
+  } catch (_) { }
+
+  return null;
+}
+
+function getAudioDuration(filePath) {
+  const probe = getFFprobePath();
+  if (!probe || !filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const out = execSync(`"${probe}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 10000
+    }).trim();
+    const dur = parseFloat(out);
+    return !isNaN(dur) && dur > 0 ? dur : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // ==========================================
 // 7. REQUEST BODY PARSING & LIMITS
@@ -731,20 +781,25 @@ const server = http.createServer(async (req, res) => {
       fs.writeFileSync(assPath, assContent, 'utf-8');
 
       const assPathEscaped = escapeAssPath(assPath);
+      const audioDuration = getAudioDuration(audioPath);
+      const colorInput = (audioDuration && audioDuration > 0)
+        ? `color=c=black:s=1920x1080:r=30:d=${audioDuration.toFixed(3)}`
+        : 'color=c=black:s=1920x1080:r=30';
+
       const ffmpegArgs = [
         '-y',
         '-f', 'lavfi',
-        '-i', 'color=c=black:s=1920x1080:r=30',
+        '-i', colorInput,
         '-i', audioPath,
         '-filter_complex', `[0:v]ass='${assPathEscaped}'[v]`,
         '-map', '[v]',
         '-map', '1:a:0',
-        '-shortest',
+        ...((audioDuration && audioDuration > 0) ? ['-t', `${audioDuration.toFixed(3)}`] : ['-shortest']),
         ...UNIVERSAL_MP4_ARGS,
         outputPath
       ];
 
-      console.log(`[FFmpeg] Rendering job ${jobId}...`);
+      console.log(`[FFmpeg] Rendering job ${jobId} (duration: ${audioDuration ? audioDuration.toFixed(2) + 's' : 'dynamic'})...`);
       await execProcess(getFFmpegPath() || 'ffmpeg', ffmpegArgs, { tempFilesToClean: filesToClean });
 
       if (fs.existsSync(outputPath)) {
@@ -811,13 +866,14 @@ const server = http.createServer(async (req, res) => {
 
       let ffmpegArgs = [];
       if (audioPath && fs.existsSync(audioPath)) {
+        const audioDuration = getAudioDuration(audioPath);
         ffmpegArgs = [
           '-y',
           '-i', inputPath,
           '-i', audioPath,
           '-map', '0:v:0',
           '-map', '1:a:0',
-          '-shortest',
+          ...((audioDuration && audioDuration > 0) ? ['-t', `${audioDuration.toFixed(3)}`] : ['-shortest']),
           ...UNIVERSAL_MP4_ARGS,
           outputPath
         ];

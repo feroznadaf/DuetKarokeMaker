@@ -1780,6 +1780,8 @@ function renderLineManagerList() {
 }
 
 function syncSegmentsToTextarea() {
+  state.currentRenderPaid = false;
+  state.renderedVideoUrl = null;
   const formatted = state.segments.map(seg => {
     const s = TimeUtil.toDisplay(seg.start);
     const e = TimeUtil.toDisplay(seg.end);
@@ -1953,12 +1955,38 @@ async function renderVideoLive() {
   dom.playIcon.style.display = 'none';
   dom.pauseIcon.style.display = 'block';
 
-  const duration = state.audioDuration || state.audioElement.duration || 30;
+  // Ensure Audio Duration is properly loaded before rendering
+  if (!state.audioDuration || isNaN(state.audioDuration) || state.audioDuration <= 0) {
+    if (state.audioElement.duration && !isNaN(state.audioElement.duration) && state.audioElement.duration > 0) {
+      state.audioDuration = state.audioElement.duration;
+    } else {
+      await new Promise(resolve => {
+        if (state.audioElement.duration && !isNaN(state.audioElement.duration)) return resolve();
+        state.audioElement.addEventListener('loadedmetadata', () => resolve(), { once: true });
+        setTimeout(resolve, 2000);
+      });
+      if (state.audioElement.duration && !isNaN(state.audioElement.duration)) {
+        state.audioDuration = state.audioElement.duration;
+      }
+    }
+  }
+
+  // Calculate true full song duration: never artificially truncate at 30 seconds
+  const lastLyricTime = state.segments.length > 0
+    ? Math.max(...state.segments.map(s => Math.max(s.end || 0, s.disappear || 0))) + 3
+    : 180;
+  const duration = (state.audioDuration && state.audioDuration > 0)
+    ? state.audioDuration
+    : (state.audioElement.duration && !isNaN(state.audioElement.duration) && state.audioElement.duration > 0)
+      ? state.audioElement.duration
+      : lastLyricTime;
+
   let isFinalized = false;
 
   const finalizeRender = async () => {
     if (isFinalized) return;
     isFinalized = true;
+    state.audioElement.onended = null;
     clearInterval(progressInterval);
 
     state.audioElement.pause();
@@ -2092,14 +2120,16 @@ async function renderVideoLive() {
     state.isRendering = false;
   };
 
+  state.audioElement.onended = () => finalizeRender();
+
   const progressInterval = setInterval(() => {
     const cur = state.audioElement.currentTime;
     const pct = Math.min(99, Math.round((cur / Math.max(duration, 1)) * 100));
     dom.renderPercentageText.textContent = `${pct}%`;
     dom.progressBarFill.style.width = `${pct}%`;
-    dom.renderEta.textContent = `Playing & Rendering: ${TimeUtil.toDisplay(cur)} of ${TimeUtil.toDisplay(duration)} (Download button will appear on finish)`;
+    dom.renderEta.textContent = `Playing & Rendering: ${TimeUtil.toDisplay(cur)} of ${TimeUtil.toDisplay(duration)} (Download will appear on finish)`;
 
-    if (state.audioElement.ended || cur >= duration - 0.15) {
+    if (state.audioElement.ended || cur >= duration - 0.05) {
       finalizeRender();
     }
   }, 200);
@@ -2124,13 +2154,20 @@ async function renderVideoWithFfmpeg() {
     return;
   }
 
+  // Ensure Audio Duration is resolved
+  if (!state.audioDuration || isNaN(state.audioDuration) || state.audioDuration <= 0) {
+    if (state.audioElement && state.audioElement.duration && !isNaN(state.audioElement.duration) && state.audioElement.duration > 0) {
+      state.audioDuration = state.audioElement.duration;
+    }
+  }
+
   state.currentRenderPaid = true;
   state.isCleanExporting = true;
   dom.renderProgressCard.style.display = 'flex';
-  dom.renderStatusText.textContent = 'Generating 1080p MP4 with AAC Audio...';
+  dom.renderStatusText.textContent = 'Generating 1080p MP4 (NLE / Premiere / DaVinci editing compatible)...';
   dom.renderPercentageText.textContent = 'Rendering...';
   dom.progressBarFill.style.width = '75%';
-  dom.renderEta.textContent = 'Rendering 1080p video with pristine AAC audio and synchronized lyrics via server FFmpeg...';
+  dom.renderEta.textContent = 'Rendering full song 1080p video with CFR 30fps, Rec.709 color, and pristine AAC stereo audio...';
 
   try {
     let serverAudioFile = null;
@@ -2179,18 +2216,20 @@ async function renderVideoWithFfmpeg() {
       presentRenderedVideo({
         url: res.downloadUrl,
         filename,
-        description: `Ready: ${filename} (1080p Full HD MP4 with synchronized AAC audio). Click below to download.`
+        description: `Ready: ${filename} (1080p Full HD MP4 with synchronized AAC audio & NLE editing compatibility). Click below to download.`
       });
 
       // Automatically trigger direct file download
       triggerDirectFileDownload(res.downloadUrl, filename);
     } else {
       console.warn('Server FFmpeg render notice, falling back to browser studio engine:', res.error);
+      alert('Notice: Server render reported: ' + (res.error || 'Unknown status') + '. Running in-browser studio engine fallback.');
       renderVideoLive();
     }
   } catch (err) {
     console.warn('Server render notice, falling back to live recording:', err);
     dom.renderProgressCard.style.display = 'none';
+    alert('Notice: Server connection notice: ' + (err.message || 'Offline') + '. Running in-browser studio engine fallback.');
     renderVideoLive();
   }
 }
@@ -2536,12 +2575,8 @@ function initEventListeners() {
   // Render Video Preview & Download
   dom.btnRenderLive?.addEventListener('click', () => renderVideoLive());
   dom.btnRenderUniversal?.addEventListener('click', () => {
-    // If video is already rendered and ready, download directly
-    if (state.renderedVideoUrl) {
-      state.currentRenderPaid = true;
-      triggerDirectFileDownload(state.renderedVideoUrl, state.renderedVideoFilename);
-      return;
-    }
+    if (state.isRendering) return;
+    state.renderedVideoUrl = null;
     if (state.ffmpegAvailable) {
       renderVideoWithFfmpeg();
     } else {
