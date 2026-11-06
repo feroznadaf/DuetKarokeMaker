@@ -153,7 +153,68 @@ function updateAuthUI() {
 }
 
 async function deductSongCredit(amount = SUPABASE_CONFIG.tokensPerVideo) {
-  // Free downloads: never deduct tokens from user account
+  if (!currentUser) return false;
+  if (currentCredits < amount) return false;
+
+  // 1. Try atomic database RPC deduct_tokens first
+  if (supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient.rpc('deduct_tokens', { tokens_needed: amount });
+      if (!error && data) {
+        if (data.success) {
+          if (typeof data.credits === 'number') {
+            currentCredits = data.credits;
+          } else {
+            currentCredits = Math.max(0, currentCredits - amount);
+          }
+          updateAuthUI();
+          return true;
+        } else if (data.error === 'Insufficient credits') {
+          if (typeof data.credits === 'number') currentCredits = data.credits;
+          updateAuthUI();
+          return false;
+        }
+      }
+    } catch (rpcErr) {
+      console.warn('[Auth] RPC deduct_tokens attempt failed, falling back to direct table update:', rpcErr);
+    }
+  }
+
+  // 2. Direct profiles table update fallback
+  const nextCredits = Math.max(0, currentCredits - amount);
+  currentCredits = nextCredits;
+  updateAuthUI();
+
+  if (supabaseClient) {
+    try {
+      await supabaseClient
+        .from('profiles')
+        .update({ credits: nextCredits })
+        .eq('id', currentUser.id);
+    } catch (err) {
+      console.warn('[Auth] Failed to sync deducted tokens to database:', err);
+    }
+  }
+
+  return true;
+}
+
+async function refundSongCredit(amount = SUPABASE_CONFIG.tokensPerVideo) {
+  if (!currentUser) return false;
+  currentCredits += amount;
+  updateAuthUI();
+
+  if (supabaseClient) {
+    try {
+      await supabaseClient
+        .from('profiles')
+        .update({ credits: currentCredits })
+        .eq('id', currentUser.id);
+    } catch (err) {
+      console.warn('[Auth] Failed to sync refunded tokens to database:', err);
+    }
+  }
+
   return true;
 }
 
@@ -299,7 +360,13 @@ Hi Ayesha Tech Studio Team, I have initiated payment of ₹${totalPrice} for ${s
 }
 
 function openOutOfCreditsModal(reason = 'out_of_tokens') {
-  window.location.href = `/pricing?reason=${encodeURIComponent(reason)}`;
+  const modal = document.getElementById('credits-contact-modal');
+  if (modal) {
+    updateTokenRechargeUI();
+    modal.style.display = 'flex';
+  } else {
+    window.location.href = `/pricing?reason=${encodeURIComponent(reason)}`;
+  }
 }
 
 function closeOutOfCreditsModal() {
@@ -688,6 +755,24 @@ async function guardCreditAction(actionCallback) {
  * Deducts exactly 2 tokens upon download.
  */
 async function guardDownloadAction(downloadCallback) {
+  if (!currentUser) {
+    pendingGuardedAction = () => guardDownloadAction(downloadCallback);
+    openAuthModal('signin', 'Sign In Required: Sign in or create an account to download your 1080p Duet Karaoke video (2 tokens).');
+    return false;
+  }
+
+  const requiredTokens = SUPABASE_CONFIG.tokensPerVideo || 2;
+  if (currentCredits < requiredTokens) {
+    openOutOfCreditsModal('out_of_tokens');
+    return false;
+  }
+
+  const deducted = await deductSongCredit(requiredTokens);
+  if (!deducted) {
+    openOutOfCreditsModal('out_of_tokens');
+    return false;
+  }
+
   try {
     if (typeof downloadCallback === 'function') {
       return await downloadCallback();
@@ -695,6 +780,7 @@ async function guardDownloadAction(downloadCallback) {
     return true;
   } catch (err) {
     console.error('[Download Guard Error]', err);
+    await refundSongCredit(requiredTokens);
     throw err;
   }
 }
@@ -1055,6 +1141,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     guardCreditAction,
     guardDownloadAction,
     deductSongCredit,
+    refundSongCredit,
     openAuthModal,
     openOutOfCreditsModal,
     openPrivacyModal,
