@@ -188,7 +188,6 @@ const dom = {
   canvasRecordAlert: $('canvas-record-alert'),
   btnDismissRecordAlert: $('btn-dismiss-record-alert'),
   antiRecordBadge: $('anti-record-badge'),
-  btnPreviewKaraoke: $('btn-preview-karaoke'),
 
   // Export & Progress Elements
   btnRenderLive: $('btn-render-live'),
