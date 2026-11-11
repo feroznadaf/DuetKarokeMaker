@@ -1216,3 +1216,84 @@ textarea.form-control-legal {
   }
 }
 
+/* Cashfree Automated Instant Checkout */
+.cashfree-checkout-box {
+  margin: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.btn-cashfree-pay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 1.1rem 1.5rem;
+  background: linear-gradient(135deg, #06b6d4 0%, #2563eb 50%, #4f46e5 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 1.15rem;
+  cursor: pointer;
+  box-shadow: 0 4px 25px rgba(37, 99, 235, 0.45);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.btn-cashfree-pay:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(37, 99, 235, 0.65);
+  background: linear-gradient(135deg, #0891b2 0%, #1d4ed8 50%, #4338ca 100%);
+}
+
+.btn-cashfree-pay:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-cf-sub {
+  font-size: 0.76rem;
+  font-weight: 500;
+  opacity: 0.92;
+  margin-top: 0.25rem;
+  letter-spacing: 0.02em;
+}
+
+.cashfree-status-msg {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.cashfree-status-msg.info {
+  background: rgba(37, 99, 235, 0.15);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  color: #93c5fd;
+}
+
+.cashfree-status-msg.success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+.cashfree-status-msg.warning {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+
+.cashfree-status-msg.error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+

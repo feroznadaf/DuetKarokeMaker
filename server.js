@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -50,6 +51,39 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,h
   .split(',')
   .map(o => o.trim().toLowerCase())
   .filter(Boolean);
+
+// Cashfree Payment Gateway & Supabase Credit Automation Configuration
+const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || '';
+const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY || '';
+const CASHFREE_ENV = (process.env.CASHFREE_ENV || 'PRODUCTION').toUpperCase();
+const CASHFREE_API_VERSION = process.env.CASHFREE_API_VERSION || '2023-08-01';
+const CASHFREE_BASE_URL = CASHFREE_ENV === 'SANDBOX'
+  ? 'https://sandbox.cashfree.com/pg'
+  : 'https://api.cashfree.com/pg';
+
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://odvgmniswfpahwkqwtcw.supabase.co';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kdmdtbmlzd2ZwYWh3a3F3dGN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1MzE4MTksImV4cCI6MjEwNzEwNzgxOX0.dl3gytRtsokArFxN_VH2nMABfAF35757ghOnm-dYESs';
+const PAYMENT_SECRET_TOKEN = process.env.PAYMENT_SECRET_TOKEN || 'd74f260388d745a584065672ab684346e499a09945199651586a1df2775fec6f';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+// Token Package Tiers (Exact match with pricing page)
+const TOKEN_PACKAGES = {
+  8: 49,
+  20: 99,
+  48: 199,
+  120: 399
+};
+
+function calculateTokenPrice(tokens) {
+  const count = parseInt(tokens, 10);
+  if (isNaN(count) || count <= 0) return 0;
+  if (TOKEN_PACKAGES[count]) return TOKEN_PACKAGES[count];
+  if (count <= 8) return Math.max(10, Math.round(count * 6.125));
+  if (count <= 20) return Math.round(49 + ((count - 8) * 4.167));
+  if (count <= 48) return Math.round(99 + ((count - 20) * 3.571));
+  if (count <= 120) return Math.round(199 + ((count - 48) * 2.778));
+  return Math.round(count * 3.325);
+}
 
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -122,12 +156,13 @@ function setSecurityHeaders(res, req) {
   // Content-Security-Policy
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://sdk.cashfree.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: data:",
-    "connect-src 'self' https://*.supabase.co https://lrclib.net https://www.youtube.com https://generativelanguage.googleapis.com blob:",
+    "connect-src 'self' https://*.supabase.co https://*.cashfree.com https://lrclib.net https://www.youtube.com https://generativelanguage.googleapis.com blob:",
+    "frame-src 'self' https://*.cashfree.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'"
@@ -138,7 +173,7 @@ function setSecurityHeaders(res, req) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), fullscreen=*');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 }
 
 function handleCors(req, res) {
@@ -211,6 +246,8 @@ const globalLimiter = new RateLimiter(60 * 1000, 120, 'global');
 const renderLimiter = new RateLimiter(5 * 60 * 1000, 10, 'render');
 // 5 attempts per 15 minutes for admin login to prevent brute force
 const authLimiter = new RateLimiter(15 * 60 * 1000, 5, 'auth');
+// 30 payment operations per minute per IP
+const paymentLimiter = new RateLimiter(60 * 1000, 30, 'payment');
 
 // ==========================================
 // 4. ADMIN AUTHENTICATION & TOKEN UTILITIES
@@ -500,6 +537,174 @@ const parseJsonBody = (req, maxBytes = 350 * 1024 * 1024) => {
   });
 };
 
+const parseRawBody = (req, maxBytes = 1024 * 256) => {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    let bytesReceived = 0;
+
+    req.on('data', chunk => {
+      bytesReceived += chunk.length;
+      if (bytesReceived > maxBytes) {
+        req.destroy();
+        reject(new Error('Payload exceeds maximum allowed size (256KB limit)'));
+        return;
+      }
+      data += chunk;
+    });
+
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+};
+
+// ==========================================
+// 7B. CASHFREE & SUPABASE HTTPS CLIENT UTILITIES
+// ==========================================
+function makeHttpsRequest(urlStr, options = {}, postData = null) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const reqOptions = {
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname + url.search,
+      method: options.method || 'GET',
+      headers: options.headers || {}
+    };
+
+    const req = https.request(reqOptions, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = data ? JSON.parse(data) : {};
+          resolve({ status: res.statusCode, headers: res.headers, data: parsed, raw: data });
+        } catch (_) {
+          resolve({ status: res.statusCode, headers: res.headers, data: null, raw: data });
+        }
+      });
+    });
+
+    req.on('error', reject);
+    if (postData) {
+      if (typeof postData === 'object' && !(postData instanceof Buffer)) {
+        req.write(JSON.stringify(postData));
+      } else {
+        req.write(postData);
+      }
+    }
+    req.end();
+  });
+}
+
+async function createCashfreeOrder({ orderId, amount, email, phone, tokens, origin }) {
+  if (!CASHFREE_APP_ID || !CASHFREE_SECRET_KEY) {
+    throw new Error('Cashfree credentials are not configured in .env');
+  }
+
+  const url = `${CASHFREE_BASE_URL}/orders`;
+  const cleanPhone = (phone && String(phone).replace(/\D/g, '').length >= 10)
+    ? String(phone).replace(/\D/g, '').slice(-10)
+    : '9999999999';
+  const customerId = `cust_${crypto.createHash('md5').update(email.toLowerCase()).digest('hex').substring(0, 16)}`;
+
+  let safeOrigin = (origin && origin.startsWith('https://'))
+    ? origin
+    : (process.env.APP_BASE_URL || 'https://karokemaker.online');
+
+  const body = {
+    order_id: orderId,
+    order_amount: parseFloat(amount),
+    order_currency: 'INR',
+    customer_details: {
+      customer_id: customerId,
+      customer_email: email.toLowerCase().trim(),
+      customer_phone: cleanPhone
+    },
+    order_meta: {
+      return_url: `${safeOrigin}/pricing?order_id={order_id}&status=check`,
+      notify_url: `${safeOrigin}/api/payments/cashfree-webhook`
+    },
+    order_tags: {
+      tokens: String(tokens),
+      email: email.toLowerCase().trim()
+    },
+    order_note: `Recharge ${tokens} Tokens for ${email}`
+  };
+
+  const headers = {
+    'x-client-id': CASHFREE_APP_ID,
+    'x-client-secret': CASHFREE_SECRET_KEY,
+    'x-api-version': CASHFREE_API_VERSION,
+    'Content-Type': 'application/json'
+  };
+
+  const res = await makeHttpsRequest(url, { method: 'POST', headers }, body);
+  if (res.status >= 200 && res.status < 300 && res.data?.payment_session_id) {
+    return res.data;
+  }
+  const errorMsg = res.data?.message || res.data?.error || `Cashfree returned HTTP ${res.status}`;
+  throw new Error(errorMsg);
+}
+
+async function fetchCashfreeOrder(orderId) {
+  if (!CASHFREE_APP_ID || !CASHFREE_SECRET_KEY) {
+    throw new Error('Cashfree credentials are not configured in .env');
+  }
+
+  const url = `${CASHFREE_BASE_URL}/orders/${encodeURIComponent(orderId)}`;
+  const headers = {
+    'x-client-id': CASHFREE_APP_ID,
+    'x-client-secret': CASHFREE_SECRET_KEY,
+    'x-api-version': CASHFREE_API_VERSION
+  };
+
+  const res = await makeHttpsRequest(url, { method: 'GET', headers });
+  if (res.status >= 200 && res.status < 300 && res.data) {
+    return res.data;
+  }
+  throw new Error(res.data?.message || `Cashfree fetch error HTTP ${res.status}`);
+}
+
+async function creditTokensInSupabase({ orderId, paymentId, email, tokens, amount, paymentMethod = 'cashfree', rawPayload = {} }) {
+  const rpcUrl = `${SUPABASE_URL}/rest/v1/rpc/credit_tokens_from_payment`;
+  const authKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+
+  const headers = {
+    'apikey': authKey,
+    'Authorization': `Bearer ${authKey}`,
+    'Content-Type': 'application/json'
+  };
+
+  const body = {
+    p_secret_token: PAYMENT_SECRET_TOKEN,
+    p_order_id: String(orderId),
+    p_payment_id: String(paymentId || ''),
+    p_email: String(email).toLowerCase().trim(),
+    p_tokens: parseInt(tokens, 10),
+    p_amount: parseFloat(amount),
+    p_payment_method: String(paymentMethod),
+    p_raw_payload: rawPayload
+  };
+
+  const response = await makeHttpsRequest(rpcUrl, { method: 'POST', headers }, body);
+  if (response.status >= 200 && response.status < 300 && response.data) {
+    return response.data;
+  }
+  throw new Error(response.data?.message || response.data?.error || `Supabase RPC returned HTTP ${response.status}`);
+}
+
+function verifyCashfreeWebhookSignature(signature, timestamp, rawBody) {
+  if (!signature || !timestamp || !CASHFREE_SECRET_KEY) return false;
+  try {
+    const dataToSign = timestamp + rawBody;
+    const expected = crypto.createHmac('sha256', CASHFREE_SECRET_KEY).update(dataToSign).digest('base64');
+    return crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'));
+  } catch (err) {
+    console.warn('[Cashfree Webhook] Signature verification error:', err.message);
+    return false;
+  }
+}
+
 // ==========================================
 // 8. STATIC FILE SERVING WITH CLOUDFLARE CDN HEADERS & GZIP
 // ==========================================
@@ -720,6 +925,178 @@ const server = http.createServer(async (req, res) => {
       });
     } catch (err) {
       return sendError(res, 500, 'Error processing data deletion request.', err);
+    }
+  }
+
+  // ------------------------------------------
+  // API: Cashfree Create Order
+  // ------------------------------------------
+  if (pathname === '/api/payments/create-order' && req.method === 'POST') {
+    if (!paymentLimiter.isAllowed(clientIp)) {
+      return sendError(res, 429, 'Too many payment requests. Please wait a moment.');
+    }
+
+    try {
+      const body = await parseJsonBody(req, 1024 * 32);
+      const email = String(body.email || '').trim().toLowerCase();
+      const tokens = parseInt(body.tokens, 10);
+      const phone = String(body.phone || '').trim();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        return sendError(res, 400, 'A valid email address is required to recharge tokens.');
+      }
+
+      if (isNaN(tokens) || tokens <= 0) {
+        return sendError(res, 400, 'Invalid token package quantity requested.');
+      }
+
+      // Calculate server-side verified price (prevents client-side price tampering)
+      const expectedAmount = calculateTokenPrice(tokens);
+      if (expectedAmount <= 0) {
+        return sendError(res, 400, 'Invalid token quantity.');
+      }
+
+      const orderId = `cf_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const origin = req.headers.origin || `http://${req.headers.host || 'localhost:3000'}`;
+
+      const cfData = await createCashfreeOrder({
+        orderId,
+        amount: expectedAmount,
+        email,
+        phone,
+        tokens,
+        origin
+      });
+
+      return sendJson(res, 200, {
+        success: true,
+        orderId: cfData.order_id,
+        paymentSessionId: cfData.payment_session_id,
+        amount: expectedAmount,
+        tokens,
+        environment: CASHFREE_ENV
+      });
+    } catch (err) {
+      console.error('[Cashfree Order Error]', err);
+      return sendError(res, 500, err.message || 'Failed to create payment session with Cashfree.');
+    }
+  }
+
+  // ------------------------------------------
+  // API: Cashfree Verify Order & Direct Token Credit
+  // ------------------------------------------
+  if (pathname === '/api/payments/verify-order' && req.method === 'POST') {
+    if (!paymentLimiter.isAllowed(clientIp)) {
+      return sendError(res, 429, 'Too many verification attempts.');
+    }
+
+    try {
+      const body = await parseJsonBody(req, 1024 * 16);
+      const orderId = String(body.orderId || body.order_id || '').trim();
+
+      if (!orderId) {
+        return sendError(res, 400, 'Order ID is required to verify payment.');
+      }
+
+      // 1. Fetch exact status from Cashfree
+      const cfOrder = await fetchCashfreeOrder(orderId);
+      const status = cfOrder.order_status;
+      const orderAmount = parseFloat(cfOrder.order_amount);
+      const tags = cfOrder.order_tags || {};
+      const tokens = parseInt(tags.tokens || body.tokens || 0, 10) || 0;
+      const email = (tags.email || body.email || cfOrder.customer_details?.customer_email || '').toLowerCase().trim();
+
+      if (status === 'PAID') {
+        // 2. Atomically credit tokens in Supabase
+        const creditResult = await creditTokensInSupabase({
+          orderId,
+          paymentId: cfOrder.cf_order_id,
+          email,
+          tokens,
+          amount: orderAmount,
+          paymentMethod: 'cashfree_checkout',
+          rawPayload: cfOrder
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          status: 'PAID',
+          credits: creditResult.credits,
+          tokensAdded: tokens,
+          alreadyCredited: creditResult.already_credited === true,
+          message: `Payment confirmed! ${tokens} tokens added to ${email}.`
+        });
+      } else {
+        return sendJson(res, 200, {
+          success: false,
+          status: status,
+          message: `Order status is ${status}. Payment has not been completed yet.`
+        });
+      }
+    } catch (err) {
+      console.error('[Cashfree Verify Error]', err);
+      return sendError(res, 500, err.message || 'Error verifying order status with Cashfree.');
+    }
+  }
+
+  // ------------------------------------------
+  // API: Cashfree Webhook Listener (Server-to-Server HMAC Verified)
+  // ------------------------------------------
+  if (pathname === '/api/payments/cashfree-webhook' && req.method === 'POST') {
+    try {
+      const signature = req.headers['x-webhook-signature'];
+      const timestamp = req.headers['x-webhook-timestamp'];
+      const rawBody = await parseRawBody(req, 1024 * 128);
+
+      // Verify HMAC-SHA256 signature
+      const isSignatureValid = verifyCashfreeWebhookSignature(signature, timestamp, rawBody);
+      if (!isSignatureValid && NODE_ENV === 'production') {
+        console.warn('[Cashfree Webhook] Invalid webhook signature detected.');
+        return sendError(res, 401, 'Invalid webhook signature.');
+      }
+
+      let payload = {};
+      try {
+        payload = JSON.parse(rawBody);
+      } catch (_) {
+        return sendError(res, 400, 'Invalid JSON body.');
+      }
+
+      const eventType = payload.type || payload.event;
+      console.log(`[Cashfree Webhook] Received event: ${eventType}`);
+
+      if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' || eventType === 'PAYMENT_SUCCESS') {
+        const orderData = payload.data?.order || {};
+        const paymentData = payload.data?.payment || {};
+        const customerData = payload.data?.customer_details || {};
+
+        const orderId = orderData.order_id;
+        const cfPaymentId = paymentData.cf_payment_id;
+        const amount = parseFloat(paymentData.payment_amount || orderData.order_amount || 0);
+        const tags = orderData.order_tags || {};
+        const tokens = parseInt(tags.tokens, 10);
+        const email = (tags.email || customerData.customer_email || '').toLowerCase().trim();
+        const paymentMethod = paymentData.payment_group || 'cashfree';
+
+        if (orderId && email && tokens > 0) {
+          const creditResult = await creditTokensInSupabase({
+            orderId,
+            paymentId: cfPaymentId,
+            email,
+            tokens,
+            amount,
+            paymentMethod,
+            rawPayload: payload
+          });
+          console.log(`[Cashfree Webhook] Successfully credited ${tokens} tokens for ${email}. New balance: ${creditResult.credits}`);
+        }
+      }
+
+      return sendJson(res, 200, { status: 'ok', received: true });
+    } catch (err) {
+      console.error('[Cashfree Webhook Processing Error]', err);
+      return sendError(res, 500, 'Error processing webhook.');
     }
   }
 

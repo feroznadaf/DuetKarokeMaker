@@ -16,8 +16,9 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css?v=2.2.0">
-  <!-- 100% Free Supabase Client & Auth SDK -->
+  <!-- 100% Free Supabase Client & Auth SDK, Cashfree SDK v3 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
   <script src="auth.js?v=2.2.0"></script>
 </head>
 
@@ -919,6 +920,18 @@ Tip: You can also use the 'Line-by-Line Studio' tab above for visual editing!"><
               <span class="summary-label total-label">Total Payable Amount:</span>
               <span id="summary-total-price" class="summary-total-val">₹99</span>
             </div>
+          </div>
+
+          <!-- Cashfree Automated Instant Top-Up -->
+          <div class="cashfree-checkout-box" style="margin: 1rem 0;">
+            <button type="button" class="btn-cashfree-pay" id="btn-modal-pay-cashfree" aria-label="Pay Instantly with Cashfree">
+              <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                <span style="font-size: 1.25rem;">⚡</span>
+                <span id="btn-modal-pay-cashfree-text">Pay &amp; Top-Up Instantly with Cashfree</span>
+              </div>
+              <span class="btn-cf-sub">UPI (GPay / PhonePe / Paytm), Cards &amp; NetBanking • Immediate Auto-Credit</span>
+            </button>
+            <div id="modal-cashfree-status" class="cashfree-status-msg" style="display: none; margin-top: 0.5rem;"></div>
           </div>
 
           <!-- Transparent Fee Guarantee -->

@@ -252,12 +252,158 @@ function showCopyToast(msg = 'Copied to clipboard!') {
   }, 2600);
 }
 
+// ==========================================
+// CASHFREE AUTOMATED SEAMLESS CHECKOUT
+// ==========================================
+let cashfreeInstance = null;
+
+function getCashfreeInstance() {
+  if (typeof Cashfree === 'undefined') {
+    console.warn('[Cashfree] SDK not loaded yet.');
+    return null;
+  }
+  if (!cashfreeInstance) {
+    cashfreeInstance = Cashfree({ mode: 'production' });
+  }
+  return cashfreeInstance;
+}
+
+async function startCashfreeCheckout() {
+  const email = getEffectiveEmail();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email) || email === 'user@example.com') {
+    alert('Please enter your account email address above so we can credit tokens to your account.');
+    const emailInput = document.getElementById('purchase-email-input');
+    if (emailInput) {
+      emailInput.focus();
+      emailInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return;
+  }
+
+  const payBtn = document.getElementById('btn-pay-cashfree');
+  const btnText = document.getElementById('btn-pay-cashfree-text');
+  const statusMsg = document.getElementById('cashfree-checkout-status');
+  const originalText = btnText ? btnText.textContent : '';
+
+  try {
+    if (payBtn) {
+      payBtn.disabled = true;
+      if (btnText) btnText.textContent = 'Opening Secure Cashfree Checkout...';
+    }
+    if (statusMsg) {
+      statusMsg.style.display = 'block';
+      statusMsg.textContent = 'Creating secure payment session...';
+      statusMsg.className = 'cashfree-status-msg info';
+    }
+
+    // 1. Create Cashfree Order on Backend
+    const res = await fetch('/api/payments/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        tokens: selectedTokens,
+        phone: '9999999999'
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.paymentSessionId) {
+      throw new Error(data.message || data.error || 'Failed to create payment session with Cashfree.');
+    }
+
+    const orderId = data.orderId;
+    const paymentSessionId = data.paymentSessionId;
+    const cf = getCashfreeInstance();
+
+    if (!cf) {
+      throw new Error('Cashfree payment SDK is still loading. Please click again in 2 seconds.');
+    }
+
+    if (statusMsg) {
+      statusMsg.textContent = 'Cashfree checkout opened. Complete your payment...';
+    }
+
+    // 2. Open Cashfree Seamless Drop Modal
+    cf.checkout({
+      paymentSessionId: paymentSessionId,
+      redirectTarget: '_modal'
+    }).then(async (result) => {
+      console.log('[Cashfree Modal Result]', result);
+
+      if (result.error) {
+        console.warn('[Cashfree Checkout Closed/Error]', result.error);
+        if (statusMsg) {
+          statusMsg.textContent = result.error.message || 'Payment window was closed.';
+          statusMsg.className = 'cashfree-status-msg warning';
+        }
+      }
+
+      // Automatically verify order and update tokens
+      await verifyOrderAfterPayment(orderId, email);
+    });
+
+  } catch (err) {
+    console.error('[Cashfree Checkout Error]', err);
+    alert('Payment error: ' + err.message);
+    if (statusMsg) {
+      statusMsg.textContent = 'Checkout error: ' + err.message;
+      statusMsg.className = 'cashfree-status-msg error';
+    }
+  } finally {
+    if (payBtn) {
+      payBtn.disabled = false;
+      if (btnText) btnText.textContent = originalText;
+    }
+  }
+}
+
+async function verifyOrderAfterPayment(orderId, email) {
+  const statusMsg = document.getElementById('cashfree-checkout-status');
+  if (statusMsg) {
+    statusMsg.style.display = 'block';
+    statusMsg.textContent = 'Verifying payment with Cashfree & updating your tokens...';
+    statusMsg.className = 'cashfree-status-msg info';
+  }
+
+  try {
+    const res = await fetch('/api/payments/verify-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, email, tokens: selectedTokens })
+    });
+    const data = await res.json();
+
+    if (data.success && data.status === 'PAID') {
+      if (typeof data.credits === 'number') {
+        userCredits = data.credits;
+        updateAccountUI();
+      }
+      if (statusMsg) {
+        statusMsg.innerHTML = `🎉 <strong>Payment Confirmed!</strong> ${data.tokensAdded || selectedTokens} tokens credited to <strong>${email}</strong>! You can now render karaoke videos without waiting.`;
+        statusMsg.className = 'cashfree-status-msg success';
+      }
+      alert(`🎉 Payment Successful! ${data.tokensAdded || selectedTokens} tokens added to your account!`);
+      document.querySelector('.recharge-account-card')?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      if (statusMsg) {
+        statusMsg.textContent = data.message || 'Payment not completed or pending bank clearance.';
+        statusMsg.className = 'cashfree-status-msg warning';
+      }
+    }
+  } catch (err) {
+    console.warn('[Verify Error]', err);
+  }
+}
+
 // Global initialization
 window.addEventListener('DOMContentLoaded', async () => {
   // 1. Check URL parameters
   const params = new URLSearchParams(window.location.search);
   const reason = params.get('reason');
   const reqTokens = params.get('tokens');
+  const orderIdParam = params.get('order_id');
 
   if (reason === 'out_of_tokens') {
     const alertBanner = document.getElementById('out-of-tokens-banner');
@@ -270,6 +416,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       selectedTokens = num;
     }
   }
+
+  // 1B. Check if returning from redirect payment
+  if (orderIdParam) {
+    verifyOrderAfterPayment(orderIdParam, getEffectiveEmail());
+  }
+
+  // 1C. Wire Cashfree Pay Button
+  document.getElementById('btn-pay-cashfree')?.addEventListener('click', startCashfreeCheckout);
 
   // 2. Package Cards Click Listeners
   document.querySelectorAll('.token-pkg-card').forEach(card => {

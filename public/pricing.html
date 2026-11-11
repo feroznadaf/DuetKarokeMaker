@@ -151,6 +151,18 @@
           </div>
         </div>
 
+        <!-- Cashfree Automated Instant Checkout -->
+        <div class="cashfree-checkout-box">
+          <button type="button" class="btn-cashfree-pay" id="btn-pay-cashfree" aria-label="Pay Instantly with Cashfree">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+              <span style="font-size: 1.25rem;">⚡</span>
+              <span id="btn-pay-cashfree-text">Pay &amp; Recharge Instantly with Cashfree</span>
+            </div>
+            <span class="btn-cf-sub">Supports UPI (GPay / PhonePe / Paytm / BHIM), Cards &amp; NetBanking • Instant Auto-Credit</span>
+          </button>
+          <div id="cashfree-checkout-status" class="cashfree-status-msg" style="display: none;"></div>
+        </div>
+
         <!-- Transparent Fee Guarantee -->
         <div class="fee-transparency-card">
           <div class="transparency-pill">No Hidden Fees</div>
@@ -350,8 +362,9 @@
     <p>© 2026 Ayesha Tech Studio. All rights reserved.</p>
   </footer>
 
-  <!-- Supabase JS Client & Pricing Controller -->
+  <!-- Supabase JS Client, Cashfree SDK v3 & Pricing Controller -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
   <script src="pricing.js"></script>
 </body>
 </html>

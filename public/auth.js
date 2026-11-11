@@ -359,6 +359,130 @@ Hi Ayesha Tech Studio Team, I have initiated payment of ₹${totalPrice} for ${s
   }
 }
 
+// ==========================================
+// CASHFREE INSTANT MODAL CHECKOUT
+// ==========================================
+let modalCashfreeInstance = null;
+
+function getModalCashfreeInstance() {
+  if (typeof Cashfree === 'undefined') return null;
+  if (!modalCashfreeInstance) {
+    modalCashfreeInstance = Cashfree({ mode: 'production' });
+  }
+  return modalCashfreeInstance;
+}
+
+async function startModalCashfreeCheckout() {
+  if (!currentUser) {
+    closeOutOfCreditsModal();
+    openAuthModal('signin', 'Please sign in or create an account first before purchasing tokens.');
+    return;
+  }
+
+  const email = currentUser.email;
+  const payBtn = document.getElementById('btn-modal-pay-cashfree');
+  const btnText = document.getElementById('btn-modal-pay-cashfree-text');
+  const statusMsg = document.getElementById('modal-cashfree-status');
+  const originalText = btnText ? btnText.textContent : '';
+
+  try {
+    if (payBtn) {
+      payBtn.disabled = true;
+      if (btnText) btnText.textContent = 'Opening Cashfree Checkout...';
+    }
+    if (statusMsg) {
+      statusMsg.style.display = 'block';
+      statusMsg.textContent = 'Creating secure payment session...';
+      statusMsg.className = 'cashfree-status-msg info';
+    }
+
+    const res = await fetch('/api/payments/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        tokens: selectedTokens,
+        phone: '9999999999'
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.paymentSessionId) {
+      throw new Error(data.message || data.error || 'Failed to initiate Cashfree order.');
+    }
+
+    const orderId = data.orderId;
+    const cf = getModalCashfreeInstance();
+    if (!cf) {
+      throw new Error('Cashfree SDK is loading. Please click again in 2 seconds.');
+    }
+
+    if (statusMsg) {
+      statusMsg.textContent = 'Cashfree checkout opened. Complete your payment...';
+    }
+
+    cf.checkout({
+      paymentSessionId: data.paymentSessionId,
+      redirectTarget: '_modal'
+    }).then(async (result) => {
+      console.log('[Modal Cashfree Result]', result);
+
+      if (statusMsg) {
+        statusMsg.textContent = 'Verifying payment with Cashfree & updating balance...';
+        statusMsg.className = 'cashfree-status-msg info';
+      }
+
+      try {
+        const verifyRes = await fetch('/api/payments/verify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, email, tokens: selectedTokens })
+        });
+        const verifyData = await verifyRes.json();
+
+        if (verifyData.success && verifyData.status === 'PAID') {
+          if (typeof verifyData.credits === 'number') {
+            currentCredits = verifyData.credits;
+          } else {
+            currentCredits += (verifyData.tokensAdded || selectedTokens);
+          }
+          updateAuthUI();
+          updateTokenRechargeUI();
+
+          if (statusMsg) {
+            statusMsg.innerHTML = `🎉 <strong>Payment Confirmed!</strong> ${verifyData.tokensAdded || selectedTokens} tokens credited. You can now render your duet video!`;
+            statusMsg.className = 'cashfree-status-msg success';
+          }
+          alert(`🎉 Payment Successful! ${verifyData.tokensAdded || selectedTokens} tokens have been added to your account!`);
+          setTimeout(() => {
+            closeOutOfCreditsModal();
+          }, 1800);
+        } else {
+          if (statusMsg) {
+            statusMsg.textContent = verifyData.message || 'Payment not completed.';
+            statusMsg.className = 'cashfree-status-msg warning';
+          }
+        }
+      } catch (verErr) {
+        console.warn('[Modal Verify Error]', verErr);
+      }
+    });
+
+  } catch (err) {
+    console.error('[Modal Cashfree Error]', err);
+    alert('Payment error: ' + err.message);
+    if (statusMsg) {
+      statusMsg.textContent = 'Error: ' + err.message;
+      statusMsg.className = 'cashfree-status-msg error';
+    }
+  } finally {
+    if (payBtn) {
+      payBtn.disabled = false;
+      if (btnText) btnText.textContent = originalText;
+    }
+  }
+}
+
 function openOutOfCreditsModal(reason = 'out_of_tokens') {
   const modal = document.getElementById('credits-contact-modal');
   if (modal) {
@@ -871,6 +995,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Recharge Modal Listeners
   document.getElementById('btn-close-contact-modal')?.addEventListener('click', closeOutOfCreditsModal);
+  document.getElementById('btn-modal-pay-cashfree')?.addEventListener('click', startModalCashfreeCheckout);
 
   // Allow clicking on header credits pill to recharge tokens anytime - redirects to pricing page
   document.getElementById('credits-pill')?.addEventListener('click', (e) => {

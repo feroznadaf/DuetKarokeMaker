@@ -164,7 +164,141 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_update_credits(TEXT, INT) TO authenticated;
 
 -- ====================================================================
--- 8. HIGH CONCURRENCY CONNECTION POOLING CONFIGURATION (SUPAVISOR - PORT 6543)
+-- 8. AUTOMATED CASHFREE PAYMENTS & ATOMIC TOKEN RECHARGE (IDEMPOTENT)
+-- ====================================================================
+
+CREATE TABLE IF NOT EXISTS public.payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id TEXT UNIQUE NOT NULL,
+  cf_payment_id TEXT,
+  email TEXT NOT NULL,
+  amount NUMERIC(10,2) NOT NULL,
+  tokens INT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  payment_method TEXT DEFAULT 'cashfree',
+  raw_payload JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own payments" ON public.payments;
+CREATE POLICY "Users can view own payments"
+ON public.payments
+FOR SELECT
+TO authenticated
+USING (lower(email) = lower(auth.jwt() ->> 'email'));
+
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON public.payments (order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_email ON public.payments (lower(email));
+CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments (status);
+
+-- Atomic, Idempotent Function to credit tokens from verified Cashfree payment
+CREATE OR REPLACE FUNCTION public.credit_tokens_from_payment(
+  p_secret_token TEXT,
+  p_order_id TEXT,
+  p_payment_id TEXT,
+  p_email TEXT,
+  p_tokens INT,
+  p_amount NUMERIC,
+  p_payment_method TEXT DEFAULT 'cashfree',
+  p_raw_payload JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_existing_status TEXT;
+  v_current_credits INT;
+  v_new_credits INT;
+  v_user_id UUID;
+BEGIN
+  -- 1. Security Check: Validate Secret Token or Service Role
+  IF p_secret_token IS NULL OR (
+     p_secret_token != 'd74f260388d745a584065672ab684346e499a09945199651586a1df2775fec6f'
+     AND COALESCE(auth.role(), '') != 'service_role'
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized caller');
+  END IF;
+
+  p_email := lower(trim(p_email));
+  p_order_id := trim(p_order_id);
+
+  IF p_email IS NULL OR p_email = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Invalid email address');
+  END IF;
+
+  IF p_tokens <= 0 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Invalid token quantity');
+  END IF;
+
+  -- 2. Idempotency Check: Prevent duplicate crediting
+  SELECT status INTO v_existing_status
+  FROM public.payments
+  WHERE order_id = p_order_id;
+
+  IF v_existing_status = 'PAID' OR v_existing_status = 'SUCCESS' THEN
+    SELECT credits INTO v_current_credits
+    FROM public.profiles
+    WHERE lower(email) = p_email;
+
+    RETURN jsonb_build_object(
+      'success', true,
+      'already_credited', true,
+      'credits', COALESCE(v_current_credits, 0),
+      'message', 'Payment already processed and tokens credited.'
+    );
+  END IF;
+
+  -- 3. Atomically update user profile credits
+  SELECT id, credits INTO v_user_id, v_current_credits
+  FROM public.profiles
+  WHERE lower(email) = p_email
+  FOR UPDATE;
+
+  IF v_current_credits IS NULL THEN
+    SELECT id INTO v_user_id FROM auth.users WHERE lower(email) = p_email;
+    IF v_user_id IS NOT NULL THEN
+      INSERT INTO public.profiles (id, email, credits)
+      VALUES (v_user_id, p_email, 6 + p_tokens)
+      ON CONFLICT (id) DO UPDATE SET credits = profiles.credits + p_tokens
+      RETURNING credits INTO v_new_credits;
+    ELSE
+      RETURN jsonb_build_object('success', false, 'error', 'User profile not found for email: ' || p_email);
+    END IF;
+  ELSE
+    v_new_credits := v_current_credits + p_tokens;
+    UPDATE public.profiles
+    SET credits = v_new_credits, updated_at = timezone('utc'::text, now())
+    WHERE lower(email) = p_email;
+  END IF;
+
+  -- 4. Record or update successful payment record
+  INSERT INTO public.payments (order_id, cf_payment_id, email, amount, tokens, status, payment_method, raw_payload, updated_at)
+  VALUES (p_order_id, p_payment_id, p_email, p_amount, p_tokens, 'PAID', p_payment_method, p_raw_payload, timezone('utc'::text, now()))
+  ON CONFLICT (order_id) DO UPDATE
+  SET cf_payment_id = EXCLUDED.cf_payment_id,
+      status = 'PAID',
+      payment_method = EXCLUDED.payment_method,
+      raw_payload = EXCLUDED.raw_payload,
+      updated_at = timezone('utc'::text, now());
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'already_credited', false,
+    'credits', v_new_credits,
+    'tokens_added', p_tokens
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.credit_tokens_from_payment(TEXT, TEXT, TEXT, TEXT, INT, NUMERIC, TEXT, JSONB) TO anon, authenticated, service_role;
+
+-- ====================================================================
+-- 9. HIGH CONCURRENCY CONNECTION POOLING CONFIGURATION (SUPAVISOR - PORT 6543)
 -- To support thousands of concurrent users on the Supabase free tier:
 -- 1. In Supabase Dashboard -> Project Settings -> Database -> Connection string:
 --    Select "Transaction" mode (Port 6543) instead of "Session" (Port 5432).
