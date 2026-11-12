@@ -26,6 +26,8 @@
     { "source": "/pricing", "destination": "/public/pricing.html" },
     { "source": "/purchase", "destination": "/public/pricing.html" },
     { "source": "/contact", "destination": "/public/contact.html" },
+    { "source": "/api/render-ffmpeg", "destination": "/api/status" },
+    { "source": "/api/convert-recording", "destination": "/api/status" },
     { "source": "/((?!api/).*)", "destination": "/public/$1" }
   ]
 }

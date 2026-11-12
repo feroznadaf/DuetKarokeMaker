@@ -7,8 +7,8 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'feroznadafm@gmail.com').toLower
 const ADMIN_PASSWORD_HASH = (process.env.ADMIN_PASSWORD_HASH || DEFAULT_ADMIN_PASSWORD_HASH).trim();
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || 'duet-default-secret-change-me';
 
-const SUPABASE_URL = 'https://odvgmniswfpahwkqwtcw.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kdmdtbmlzd2ZwYWh3a3F3dGN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1MzE4MTksImV4cCI6MjEwNzEwNzgxOX0.dl3gytRtsokArFxN_VH2nMABfAF35757ghOnm-dYESs';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gezplzqucotwwjlvnrkk.supabase.co';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlenBsenF1Y290d3dqbHZucmtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNjc4MDEsImV4cCI6MjEwNTg0MzgwMX0.xS4YnlrDCR5SQrZ8VJfWHlHNZa_3fnSmPxoTaIRfpgQ';
 
 function verifyHash(password, hashRecord) {
   if (!hashRecord || !password) return false;
