@@ -28,9 +28,9 @@ const state = {
 
   // Typography & Colors
   fontSize: 85,
-  color1: '#00FFFF',
+  color1: '#FFFF00',
   color2: '#FF00FF',
-  color3: '#FFFF00',
+  color3: '#FF0000',
 
   // Lyrics & Anti-Overlap Segments
   lyricsRaw: '',

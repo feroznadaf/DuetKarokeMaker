@@ -15,9 +15,9 @@
   --text-faint: #94a3b8;
 
   /* Duet Accent Colors */
-  --singer-1: #00ffff;
+  --singer-1: #ffff00;
   --singer-2: #ff00ff;
-  --singer-3: #ffff00;
+  --singer-3: #ff0000;
   --brand-cyan: #38bdf8;
   --brand-purple: #0284c7;
 
@@ -1132,9 +1132,9 @@ body.theater-mode-open {
   flex-shrink: 0;
 }
 
-.color-tag-pill.tag-1 { background: rgba(0, 255, 255, 0.2); color: #00ffff; }
+.color-tag-pill.tag-1 { background: rgba(255, 255, 0, 0.2); color: #ffff00; }
 .color-tag-pill.tag-2 { background: rgba(255, 0, 255, 0.2); color: #ff00ff; }
-.color-tag-pill.tag-3 { background: rgba(255, 255, 0, 0.2); color: #ffff00; }
+.color-tag-pill.tag-3 { background: rgba(255, 0, 0, 0.2); color: #ff0000; }
 
 .color-label {
   font-size: 0.75rem;
@@ -1432,9 +1432,9 @@ input[type="color"]::-webkit-color-swatch {
   transition: all 0.15s;
 }
 
-.tag-1-btn { color: #00ffff; border-color: rgba(0, 255, 255, 0.3); }
+.tag-1-btn { color: #ffff00; border-color: rgba(255, 255, 0, 0.3); }
 .tag-2-btn { color: #ff00ff; border-color: rgba(255, 0, 255, 0.3); }
-.tag-3-btn { color: #ffff00; border-color: rgba(255, 255, 0, 0.3); }
+.tag-3-btn { color: #ff0000; border-color: rgba(255, 0, 0, 0.3); }
 
 .tag-insert-btn:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -1614,13 +1614,13 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .voice-pill.voice-male {
-  border-color: rgba(0, 255, 255, 0.3);
-  color: #00ffff;
+  border-color: rgba(255, 255, 0, 0.3);
+  color: #ffff00;
 }
 .voice-pill.voice-male.active {
-  background: rgba(0, 255, 255, 0.18);
-  border-color: #00ffff;
-  box-shadow: 0 0 10px rgba(0, 255, 255, 0.25);
+  background: rgba(255, 255, 0, 0.18);
+  border-color: #ffff00;
+  box-shadow: 0 0 10px rgba(255, 255, 0, 0.25);
 }
 
 .voice-pill.voice-female {
@@ -1634,13 +1634,13 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .voice-pill.voice-duet {
-  border-color: rgba(255, 255, 0, 0.3);
-  color: #ffff00;
+  border-color: rgba(255, 0, 0, 0.3);
+  color: #ff0000;
 }
 .voice-pill.voice-duet.active {
-  background: rgba(255, 255, 0, 0.18);
-  border-color: #ffff00;
-  box-shadow: 0 0 10px rgba(255, 255, 0, 0.25);
+  background: rgba(255, 0, 0, 0.18);
+  border-color: #ff0000;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.25);
 }
 
 .builder-text-row {

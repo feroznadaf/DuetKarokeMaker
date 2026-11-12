@@ -397,9 +397,9 @@ if GRADIO_AVAILABLE:
                 font_size_input = gr.Slider(minimum=40, maximum=180, value=85, step=1, label="2. Adjust Font Size")
 
                 with gr.Row():
-                    color_1_input = gr.ColorPicker(value="#00FFFF", label="[1] Color (e.g. Male)")
+                    color_1_input = gr.ColorPicker(value="#FFFF00", label="[1] Color (e.g. Male)")
                     color_2_input = gr.ColorPicker(value="#FF00FF", label="[2] Color (e.g. Female)")
-                    color_3_input = gr.ColorPicker(value="#FFFF00", label="[3] Color (e.g. Both)")
+                    color_3_input = gr.ColorPicker(value="#FF0000", label="[3] Color (e.g. Both)")
 
                 lyrics_input = gr.Textbox(
                     label="3. Strict Timestamp Lyrics with Color Tags",
