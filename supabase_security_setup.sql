@@ -149,17 +149,18 @@ BEGIN
   FROM auth.users u
   ON CONFLICT (id) DO NOTHING;
 
-  SELECT jsonb_agg(
-    jsonb_build_object(
+  SELECT COALESCE(jsonb_agg(sub.item), '[]'::jsonb) INTO v_result
+  FROM (
+    SELECT jsonb_build_object(
       'id', u.id,
       'email', u.email,
       'credits', COALESCE(p.credits, 6),
       'created_at', u.created_at
-    )
-  ) INTO v_result
-  FROM auth.users u
-  LEFT JOIN public.profiles p ON p.id = u.id
-  ORDER BY u.created_at DESC;
+    ) AS item
+    FROM auth.users u
+    LEFT JOIN public.profiles p ON p.id = u.id
+    ORDER BY u.created_at DESC
+  ) sub;
 
   RETURN COALESCE(v_result, '[]'::jsonb);
 END;
@@ -223,17 +224,18 @@ BEGIN
   FROM auth.users u
   ON CONFLICT (id) DO NOTHING;
 
-  SELECT jsonb_agg(
-    jsonb_build_object(
+  SELECT COALESCE(jsonb_agg(sub.item), '[]'::jsonb) INTO v_result
+  FROM (
+    SELECT jsonb_build_object(
       'id', u.id,
       'email', u.email,
       'credits', COALESCE(p.credits, 6),
       'created_at', u.created_at
-    )
-  ) INTO v_result
-  FROM auth.users u
-  LEFT JOIN public.profiles p ON p.id = u.id
-  ORDER BY u.created_at DESC;
+    ) AS item
+    FROM auth.users u
+    LEFT JOIN public.profiles p ON p.id = u.id
+    ORDER BY u.created_at DESC
+  ) sub;
 
   RETURN COALESCE(v_result, '[]'::jsonb);
 END;

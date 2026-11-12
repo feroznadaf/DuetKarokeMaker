@@ -94,7 +94,38 @@ async function loadUserProfile(user) {
     currentCredits = SUPABASE_CONFIG.freeCredits;
   }
   updateAuthUI();
+  if (user && !profileSubscriptionChannel) {
+    subscribeToProfileChanges(user);
+  }
   return currentCredits;
+}
+
+let profileSubscriptionChannel = null;
+
+function subscribeToProfileChanges(user) {
+  if (!supabaseClient || !user) return;
+  try {
+    if (profileSubscriptionChannel) {
+      supabaseClient.removeChannel(profileSubscriptionChannel);
+      profileSubscriptionChannel = null;
+    }
+    profileSubscriptionChannel = supabaseClient
+      .channel('profile-credits-' + user.id)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`
+      }, (payload) => {
+        if (payload?.new && typeof payload.new.credits === 'number') {
+          currentCredits = payload.new.credits;
+          updateAuthUI();
+        }
+      })
+      .subscribe();
+  } catch (err) {
+    console.warn('[Auth] Realtime subscription note:', err);
+  }
 }
 
 function updateAuthUI() {
@@ -961,6 +992,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   } else {
     syncAuthGateState();
   }
+
+  // Auto-refresh token balance when switching back to tab
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentUser && supabaseClient) {
+      loadUserProfile(currentUser);
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    if (currentUser && supabaseClient) {
+      loadUserProfile(currentUser);
+    }
+  });
+
+  // Background polling every 15s to keep token balance fresh
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && currentUser && supabaseClient) {
+      loadUserProfile(currentUser);
+    }
+  }, 15000);
 
   // Gate Form & Tab Listeners
   document.getElementById('gate-tab-signin')?.addEventListener('click', () => setGateTab('signin'));
