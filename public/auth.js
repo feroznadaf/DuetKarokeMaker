@@ -1048,10 +1048,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-close-contact-modal')?.addEventListener('click', closeOutOfCreditsModal);
   document.getElementById('btn-modal-pay-cashfree')?.addEventListener('click', startModalCashfreeCheckout);
 
-  // Allow clicking on header credits pill to recharge tokens anytime - redirects to pricing page
-  document.getElementById('credits-pill')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    openOutOfCreditsModal('user_click');
+  // Allow clicking on header credits pill to open the pricing page directly
+  document.getElementById('credits-pill')?.addEventListener('click', () => {
+    window.location.href = '/pricing';
   });
 
   // Modal backdrop click to close
