@@ -135,25 +135,34 @@
       <section class="quick-topup-section">
         <div class="quick-topup-card">
           <div class="topup-header">
-            <h3>Quick Credit Top-Up</h3>
-            <p>Add song credits directly to any customer's account.</p>
+            <h3>Quick Token Management</h3>
+            <p>Add, remove, or set karaoke tokens for any customer account instantly.</p>
           </div>
           <form id="form-direct-topup" class="topup-form">
-            <div class="form-row">
-              <input type="email" id="direct-email-input" placeholder="Customer email (e.g. user@gmail.com)" required>
-              <div class="amount-presets">
-                <button type="button" class="btn-preset" data-amount="5">+5</button>
-                <button type="button" class="btn-preset active" data-amount="10">+10</button>
-                <button type="button" class="btn-preset" data-amount="20">+20</button>
-                <button type="button" class="btn-preset" data-amount="50">+50</button>
+            <div class="form-row" style="flex-wrap: wrap; gap: 10px;">
+              <input type="email" id="direct-email-input" placeholder="Customer email (e.g. user@gmail.com)" required style="flex: 1; min-width: 220px;">
+              
+              <!-- Action Mode Selection -->
+              <div class="mode-selector-group" style="display: flex; gap: 4px;">
+                <button type="button" class="btn-mode active" data-mode="add" id="btn-mode-add" title="Add tokens to user account">+ Add</button>
+                <button type="button" class="btn-mode" data-mode="remove" id="btn-mode-remove" title="Remove tokens from user account">- Remove</button>
+                <button type="button" class="btn-mode" data-mode="set" id="btn-mode-set" title="Set exact balance for user">= Set</button>
               </div>
-              <input type="number" id="direct-amount-input" min="1" max="1000" value="10" title="Custom Amount">
-              <button type="submit" class="btn-grant-credits" id="btn-grant-submit">Review & Approve</button>
+
+              <div class="amount-presets" id="direct-amount-presets">
+                <button type="button" class="btn-preset" data-amount="2">2</button>
+                <button type="button" class="btn-preset" data-amount="6">6</button>
+                <button type="button" class="btn-preset active" data-amount="10">10</button>
+                <button type="button" class="btn-preset" data-amount="20">20</button>
+                <button type="button" class="btn-preset" data-amount="50">50</button>
+              </div>
+              <input type="number" id="direct-amount-input" min="1" max="10000" value="10" title="Custom Token Amount" style="width: 80px;">
+              <button type="submit" class="btn-grant-credits" id="btn-grant-submit">Apply Changes →</button>
             </div>
             <div class="topup-live-calc" id="topup-live-calc">
-              <span class="calc-tag">Remaining: <b id="calc-preview-remaining">--</b></span>
-              <span class="calc-tag accent">+ Adding: <b id="calc-preview-added">+10</b></span>
-              <span class="calc-tag success">= Total: <b id="calc-preview-total">--</b></span>
+              <span class="calc-tag">Current Balance: <b id="calc-preview-remaining">--</b></span>
+              <span class="calc-tag accent" id="calc-preview-action-tag">Action: <b id="calc-preview-added">+10 Tokens</b></span>
+              <span class="calc-tag success">= New Balance: <b id="calc-preview-total">--</b></span>
             </div>
           </form>
         </div>
@@ -231,11 +240,11 @@
             <thead>
               <tr>
                 <th>User Email</th>
-                <th>Remaining Credits</th>
-                <th>Adding Credits</th>
-                <th>Approve Top-Up</th>
+                <th>Current Tokens</th>
+                <th>Token Adjustment</th>
+                <th>Add / Remove Actions</th>
                 <th>Joined Date</th>
-                <th>Actions</th>
+                <th>Quick Actions</th>
               </tr>
             </thead>
             <tbody id="users-table-body">

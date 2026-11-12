@@ -126,6 +126,34 @@ async function runTests() {
     }
     console.log('  ✅ Malicious non-YouTube URL rejected with 400 Bad Request.');
 
+    // 7. Test Admin User List Endpoint
+    console.log('\n[*] Test 7: Admin Users API with Token');
+    const usersRes = await request('/api/admin/users', {
+      headers: { 'Authorization': `Bearer ${goodLoginData.token}` }
+    });
+    console.log('  Admin Users Status:', usersRes.statusCode);
+    const usersData = JSON.parse(usersRes.body);
+    if (usersRes.statusCode !== 200 || !usersData.success) {
+      throw new Error('Admin users endpoint failed!');
+    }
+    console.log('  ✅ Admin users endpoint accessible with valid session.');
+
+    // 8. Test Admin Update Credits Validation
+    console.log('\n[*] Test 8: Admin Update Credits Input Validation');
+    const badCreditRes = await request('/api/admin/update-credits', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${goodLoginData.token}`
+      },
+      body: { email: 'not-an-email', amount: 10, mode: 'add' }
+    });
+    console.log('  Bad Input Status:', badCreditRes.statusCode);
+    if (badCreditRes.statusCode !== 400) {
+      throw new Error('Expected 400 for invalid email on update credits');
+    }
+    console.log('  ✅ Invalid customer email safely rejected with 400 Bad Request.');
+
     console.log('\n🎉 ALL LIVE SERVER INTEGRATION SECURITY TESTS PASSED!');
   } finally {
     serverProcess.kill();

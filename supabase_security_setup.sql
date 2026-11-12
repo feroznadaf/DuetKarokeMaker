@@ -12,6 +12,36 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- Upgrade existing table if columns are missing
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 6;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now());
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now());
+
+-- Auto-create / backfill profiles for all existing auth.users
+INSERT INTO public.profiles (id, email, credits)
+SELECT id, email, 6
+FROM auth.users
+ON CONFLICT (id) DO UPDATE SET 
+  email = EXCLUDED.email,
+  credits = COALESCE(public.profiles.credits, 6);
+
+-- Trigger to automatically create profile for any new user signing up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, credits)
+  VALUES (new.id, new.email, 6)
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- 2. ENABLE ROW LEVEL SECURITY (Mandatory)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
@@ -113,16 +143,23 @@ BEGIN
     RETURN jsonb_build_object('error', 'Unauthorized: Admin access required');
   END IF;
 
+  -- Ensure any auth.users missing from profiles get created
+  INSERT INTO public.profiles (id, email, credits)
+  SELECT u.id, u.email, 6
+  FROM auth.users u
+  ON CONFLICT (id) DO NOTHING;
+
   SELECT jsonb_agg(
     jsonb_build_object(
-      'id', p.id,
-      'email', p.email,
-      'credits', p.credits,
-      'created_at', p.created_at
+      'id', u.id,
+      'email', u.email,
+      'credits', COALESCE(p.credits, 6),
+      'created_at', u.created_at
     )
   ) INTO v_result
-  FROM public.profiles p
-  ORDER BY p.created_at DESC;
+  FROM auth.users u
+  LEFT JOIN public.profiles p ON p.id = u.id
+  ORDER BY u.created_at DESC;
 
   RETURN COALESCE(v_result, '[]'::jsonb);
 END;
@@ -162,6 +199,124 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.admin_update_credits(TEXT, INT) TO authenticated;
+
+-- 7B. SECURE SERVER-AUTHENTICATED ADMIN FUNCTIONS (Secret Token Verified)
+CREATE OR REPLACE FUNCTION public.server_admin_get_users(p_secret_token TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_result JSONB;
+BEGIN
+  IF p_secret_token IS NULL OR (
+     p_secret_token != 'd74f260388d745a584065672ab684346e499a09945199651586a1df2775fec6f'
+     AND COALESCE(auth.role(), '') != 'service_role'
+  ) THEN
+    RETURN jsonb_build_object('error', 'Unauthorized caller');
+  END IF;
+
+  -- Ensure any auth.users missing from profiles get created
+  INSERT INTO public.profiles (id, email, credits)
+  SELECT u.id, u.email, 6
+  FROM auth.users u
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'id', u.id,
+      'email', u.email,
+      'credits', COALESCE(p.credits, 6),
+      'created_at', u.created_at
+    )
+  ) INTO v_result
+  FROM auth.users u
+  LEFT JOIN public.profiles p ON p.id = u.id
+  ORDER BY u.created_at DESC;
+
+  RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+  RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.server_admin_get_users(TEXT) TO anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.server_admin_update_credits(
+  p_secret_token TEXT,
+  p_target_email TEXT,
+  p_amount INT,
+  p_mode TEXT DEFAULT 'set'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_current_credits INT;
+  v_new_credits INT;
+  v_user_id UUID;
+BEGIN
+  IF p_secret_token IS NULL OR (
+     p_secret_token != 'd74f260388d745a584065672ab684346e499a09945199651586a1df2775fec6f'
+     AND COALESCE(auth.role(), '') != 'service_role'
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized caller');
+  END IF;
+
+  p_target_email := lower(trim(p_target_email));
+
+  IF p_target_email IS NULL OR p_target_email = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Target customer email is required');
+  END IF;
+
+  SELECT id, credits INTO v_user_id, v_current_credits
+  FROM public.profiles
+  WHERE lower(email) = p_target_email
+  FOR UPDATE;
+
+  IF v_current_credits IS NULL THEN
+    SELECT id INTO v_user_id FROM auth.users WHERE lower(email) = p_target_email;
+    IF v_user_id IS NOT NULL THEN
+      IF p_mode = 'add' THEN
+        v_new_credits := GREATEST(0, 6 + p_amount);
+      ELSIF p_mode = 'remove' THEN
+        v_new_credits := GREATEST(0, 6 - p_amount);
+      ELSE
+        v_new_credits := GREATEST(0, p_amount);
+      END IF;
+
+      INSERT INTO public.profiles (id, email, credits)
+      VALUES (v_user_id, p_target_email, v_new_credits)
+      ON CONFLICT (id) DO UPDATE SET credits = v_new_credits;
+
+      RETURN jsonb_build_object('success', true, 'email', p_target_email, 'credits', v_new_credits, 'previous_credits', 0);
+    ELSE
+      RETURN jsonb_build_object('success', false, 'error', 'User not found in system with email: ' || p_target_email);
+    END IF;
+  END IF;
+
+  IF p_mode = 'add' THEN
+    v_new_credits := GREATEST(0, v_current_credits + p_amount);
+  ELSIF p_mode = 'remove' THEN
+    v_new_credits := GREATEST(0, v_current_credits - p_amount);
+  ELSE
+    v_new_credits := GREATEST(0, p_amount);
+  END IF;
+
+  UPDATE public.profiles
+  SET credits = v_new_credits, updated_at = timezone('utc'::text, now())
+  WHERE lower(email) = p_target_email;
+
+  RETURN jsonb_build_object('success', true, 'email', p_target_email, 'credits', v_new_credits, 'previous_credits', v_current_credits);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.server_admin_update_credits(TEXT, TEXT, INT, TEXT) TO anon, authenticated, service_role;
 
 -- ====================================================================
 -- 8. AUTOMATED CASHFREE PAYMENTS & ATOMIC TOKEN RECHARGE (IDEMPOTENT)

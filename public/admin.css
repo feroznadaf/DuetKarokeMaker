@@ -323,6 +323,48 @@
   border-color: #38bdf8;
 }
 
+.mode-selector-group {
+  display: flex;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  gap: 2px;
+}
+
+.btn-mode {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-mode:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-mode.active[data-mode="add"] {
+  background: #10b981;
+  color: #042f2e;
+}
+
+.btn-mode.active[data-mode="remove"] {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.btn-mode.active[data-mode="set"] {
+  background: #0284c7;
+  color: #ffffff;
+}
+
 .amount-presets {
   display: flex;
   gap: 6px;
@@ -714,6 +756,86 @@
   color: #6b7280;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Individual Add and Remove Buttons in Table Rows */
+.btn-row-add {
+  background: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 6px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.btn-row-add:hover {
+  background: #059669;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-row-add:disabled {
+  background: #1f2937;
+  border-color: transparent;
+  color: #6b7280;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-row-remove {
+  background: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 6px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.btn-row-remove:hover {
+  background: #dc2626;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-row-remove:disabled {
+  background: #1f2937;
+  border-color: transparent;
+  color: #6b7280;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-row-set {
+  background: rgba(2, 132, 199, 0.15);
+  border: 1px solid rgba(2, 132, 199, 0.4);
+  color: #38bdf8;
+  font-weight: 600;
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-row-set:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.3);
 }
 
 .actions-cell {

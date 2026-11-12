@@ -872,6 +872,195 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ------------------------------------------
+  // API: Admin Get Users List
+  // ------------------------------------------
+  if ((pathname === '/api/admin/users' || pathname === '/api/admin/get-users') && (req.method === 'GET' || req.method === 'POST')) {
+    const session = verifyAdminSession(req);
+    if (!session) {
+      return sendError(res, 401, 'Unauthorized: Admin authentication required');
+    }
+
+    try {
+      const authKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+
+      // 1. Try server_admin_get_users RPC
+      const rpcUrl = `${SUPABASE_URL}/rest/v1/rpc/server_admin_get_users`;
+      const rpcRes = await makeHttpsRequest(
+        rpcUrl,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': authKey,
+            'Authorization': `Bearer ${authKey}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        { p_secret_token: PAYMENT_SECRET_TOKEN }
+      );
+
+      if (rpcRes.status >= 200 && rpcRes.status < 300 && Array.isArray(rpcRes.data)) {
+        return sendJson(res, 200, { success: true, users: rpcRes.data });
+      }
+
+      // 2. Direct profiles table query
+      let tableUrl = `${SUPABASE_URL}/rest/v1/profiles?select=*&order=created_at.desc`;
+      let tableRes = await makeHttpsRequest(
+        tableUrl,
+        {
+          method: 'GET',
+          headers: {
+            'apikey': authKey,
+            'Authorization': `Bearer ${authKey}`
+          }
+        }
+      );
+
+      if (!(tableRes.status >= 200 && tableRes.status < 300 && Array.isArray(tableRes.data))) {
+        tableUrl = `${SUPABASE_URL}/rest/v1/profiles?select=*`;
+        tableRes = await makeHttpsRequest(
+          tableUrl,
+          {
+            method: 'GET',
+            headers: {
+              'apikey': authKey,
+              'Authorization': `Bearer ${authKey}`
+            }
+          }
+        );
+      }
+
+      if (tableRes.status >= 200 && tableRes.status < 300 && Array.isArray(tableRes.data)) {
+        const normalized = tableRes.data.map(u => ({
+          ...u,
+          credits: u.credits !== undefined && u.credits !== null ? u.credits : 6
+        }));
+        return sendJson(res, 200, { success: true, users: normalized });
+      }
+
+      return sendJson(res, 200, { success: true, users: [] });
+    } catch (err) {
+      console.error('[Admin Users Fetch Error]', err);
+      return sendError(res, 500, 'Error retrieving users from database.', err);
+    }
+  }
+
+  // ------------------------------------------
+  // API: Admin Add / Remove / Set User Tokens
+  // ------------------------------------------
+  if (pathname === '/api/admin/update-credits' && req.method === 'POST') {
+    const session = verifyAdminSession(req);
+    if (!session) {
+      return sendError(res, 401, 'Unauthorized: Admin authentication required');
+    }
+
+    try {
+      const body = await parseJsonBody(req, 1024 * 16);
+      const email = String(body.email || body.target_email || '').trim().toLowerCase();
+      const mode = String(body.mode || 'set').toLowerCase(); // 'add' | 'remove' | 'set'
+      let amount = parseInt(body.amount ?? body.credits ?? body.new_credits ?? 0, 10);
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        return sendError(res, 400, 'A valid customer email is required.');
+      }
+
+      if (isNaN(amount)) {
+        return sendError(res, 400, 'Invalid token amount specified.');
+      }
+
+      amount = Math.abs(amount);
+      const authKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+
+      // 1. Try server_admin_update_credits RPC
+      const rpcUrl = `${SUPABASE_URL}/rest/v1/rpc/server_admin_update_credits`;
+      const rpcRes = await makeHttpsRequest(
+        rpcUrl,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': authKey,
+            'Authorization': `Bearer ${authKey}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        {
+          p_secret_token: PAYMENT_SECRET_TOKEN,
+          p_target_email: email,
+          p_amount: amount,
+          p_mode: mode
+        }
+      );
+
+      if (rpcRes.status >= 200 && rpcRes.status < 300 && rpcRes.data?.success) {
+        return sendJson(res, 200, {
+          success: true,
+          email,
+          credits: rpcRes.data.credits,
+          previousCredits: rpcRes.data.previous_credits,
+          mode,
+          amount,
+          message: `Successfully updated tokens for ${email}. New balance: ${rpcRes.data.credits} tokens.`
+        });
+      }
+
+      // 2. Direct profiles table fallback
+      const fetchRes = await makeHttpsRequest(
+        `${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}&select=*`,
+        {
+          method: 'GET',
+          headers: { 'apikey': authKey, 'Authorization': `Bearer ${authKey}` }
+        }
+      );
+
+      const profile = Array.isArray(fetchRes.data) && fetchRes.data[0];
+      const curCredits = profile ? (profile.credits || 0) : 0;
+      let newCredits = amount;
+
+      if (mode === 'add') {
+        newCredits = curCredits + amount;
+      } else if (mode === 'remove') {
+        newCredits = Math.max(0, curCredits - amount);
+      } else {
+        newCredits = Math.max(0, amount);
+      }
+
+      if (profile) {
+        const patchRes = await makeHttpsRequest(
+          `${SUPABASE_URL}/rest/v1/profiles?id=eq.${profile.id}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'apikey': authKey,
+              'Authorization': `Bearer ${authKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation'
+            }
+          },
+          { credits: newCredits, updated_at: new Date().toISOString() }
+        );
+
+        if (patchRes.status >= 200 && patchRes.status < 300) {
+          return sendJson(res, 200, {
+            success: true,
+            email,
+            credits: newCredits,
+            previousCredits: curCredits,
+            mode,
+            amount,
+            message: `Successfully set ${newCredits} tokens for ${email}.`
+          });
+        }
+      }
+
+      const errMsg = rpcRes.data?.error || rpcRes.data?.message || 'Could not update tokens for user';
+      return sendError(res, 400, errMsg);
+    } catch (err) {
+      console.error('[Admin Update Tokens Error]', err);
+      return sendError(res, 500, err.message || 'Error updating tokens in database.');
+    }
+  }
+
+  // ------------------------------------------
   // API: Status Check (Sanitized - No Leaked Paths)
   // ------------------------------------------
   if (pathname === '/api/status' && req.method === 'GET') {

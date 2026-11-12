@@ -1,8 +1,8 @@
 /**
  * Duet Karaoke Maker - Admin Dashboard Controller
  * 
- * Secure management of all user song credits, real-time statistics,
- * instant search, and one-click credit top-up.
+ * Secure management of all user song tokens, real-time statistics,
+ * instant search, and complete Add (+), Remove (-), and Set (=) token management.
  * All credentials are authenticated server-side with salted cryptography.
  */
 
@@ -16,6 +16,7 @@ let supabaseAdmin = null;
 let allUsers = [];
 let currentFilter = 'all'; // 'all' | 'zero' | 'active'
 let currentSearch = '';
+let topupMode = 'add'; // 'add' | 'remove' | 'set'
 
 // Initialize Supabase client
 function initSupabase() {
@@ -44,6 +45,17 @@ function initSupabase() {
   }
 }
 
+// Get authentication headers for server API requests
+function getAuthHeaders() {
+  const token = sessionStorage.getItem('karaoke_admin_token');
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Token'] = token;
+  }
+  return headers;
+}
+
 // Check session with server
 async function checkAdminSession() {
   try {
@@ -69,16 +81,6 @@ function showAuthGate() {
   if (overlay) overlay.style.display = 'flex';
   if (main) main.style.display = 'none';
   if (actions) actions.style.display = 'none';
-}
-
-function getAuthHeaders() {
-  const token = sessionStorage.getItem('karaoke_admin_token');
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-    headers['X-Admin-Token'] = token;
-  }
-  return headers;
 }
 
 function unlockAdminPanel(modeLabel = 'Verified Admin') {
@@ -115,7 +117,7 @@ async function lockAdminPanel() {
   if (pwdInput) pwdInput.value = '';
 }
 
-// Fetch all users from Supabase or server API
+// Fetch all users from server API or Supabase
 async function loadUsers() {
   const tbody = document.getElementById('users-table-body');
   if (tbody) {
@@ -124,41 +126,55 @@ async function loadUsers() {
 
   try {
     let users = null;
-    let error = null;
+    let fetchError = null;
 
-    // 1. Try secure Postgres RPC function first
-    if (supabaseAdmin) {
+    // 1. Fetch via Server Admin API (Bypasses RLS restrictions safely via admin session token)
+    try {
+      const res = await fetch('/api/admin/users', {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.users)) {
+          users = data.users;
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        fetchError = errData.message || `Server returned HTTP ${res.status}`;
+      }
+    } catch (apiErr) {
+      console.warn('[Admin] Server users endpoint error:', apiErr);
+      fetchError = apiErr.message;
+    }
+
+    // 2. Direct Supabase Client Fallback (If server API not reachable)
+    if (!users && supabaseAdmin) {
       try {
         const rpcRes = await supabaseAdmin.rpc('admin_get_all_users');
         if (!rpcRes.error && Array.isArray(rpcRes.data)) {
           users = rpcRes.data;
         } else {
-          // 2. Direct table select fallback
           const tableRes = await supabaseAdmin
             .from('profiles')
             .select('*')
             .order('created_at', { ascending: false });
-          
           if (!tableRes.error && Array.isArray(tableRes.data)) {
             users = tableRes.data;
-          } else if (tableRes.error) {
-            error = tableRes.error;
           }
         }
       } catch (sbErr) {
-        error = sbErr;
+        console.warn('[Admin] Direct Supabase query error:', sbErr);
       }
     }
 
-    if (error && !users) {
-      console.warn('[Admin] Query notice:', error);
+    if (!users) {
       if (tbody) {
         tbody.innerHTML = `
           <tr>
             <td colspan="6" class="table-empty">
-              <div style="margin-bottom: 8px;">Note: Database profiles table is empty or awaiting setup.</div>
+              <div style="margin-bottom: 8px;">Could not retrieve users from database.</div>
               <div style="font-size: 0.8rem; color: #8b9bb4;">
-                Run <code>supabase_security_setup.sql</code> in your Supabase SQL editor to activate table & RLS policies.
+                ${fetchError ? escapeHtml(fetchError) : 'Please check server connection or run supabase_security_setup.sql in your Supabase SQL editor.'}
               </div>
             </td>
           </tr>`;
@@ -168,22 +184,40 @@ async function loadUsers() {
       return;
     }
 
-    allUsers = users || [];
+    allUsers = users;
     updateMetrics(allUsers);
     renderUsersTable();
+    populateEmailDatalist();
+    updateTopupCalcPreview();
   } catch (err) {
     console.error('[Admin] Fetch error:', err);
     if (tbody) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 6;
-      td.className = 'table-empty';
-      td.textContent = `Error loading users: ${err.message}`;
-      tr.appendChild(td);
-      tbody.innerHTML = '';
-      tbody.appendChild(tr);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="table-empty">
+            Error loading users: ${escapeHtml(err.message)}
+          </td>
+        </tr>`;
     }
   }
+}
+
+// Populate datalist for instant autocomplete in top form
+function populateEmailDatalist() {
+  let datalist = document.getElementById('user-email-datalist');
+  if (!datalist) {
+    datalist = document.createElement('datalist');
+    datalist.id = 'user-email-datalist';
+    document.body.appendChild(datalist);
+    const emailInput = document.getElementById('direct-email-input');
+    if (emailInput) {
+      emailInput.setAttribute('list', 'user-email-datalist');
+    }
+  }
+  datalist.innerHTML = allUsers
+    .filter(u => u.email)
+    .map(u => `<option value="${escapeHtml(u.email)}">${escapeHtml(u.email)} (${u.credits || 0} tokens)</option>`)
+    .join('');
 }
 
 // Compute & display dashboard metrics
@@ -222,7 +256,6 @@ function renderUsersTable() {
     }
 
     const creds = u.credits || 0;
-
     if (currentFilter === 'zero') return creds <= 0;
     if (currentFilter === 'active') return creds > 0;
     return true;
@@ -242,7 +275,7 @@ function renderUsersTable() {
     const credits = u.credits ?? 0;
     let badgeClass = 'good';
     if (credits <= 0) badgeClass = 'zero';
-    else if (credits === 1) badgeClass = 'low';
+    else if (credits <= 2) badgeClass = 'low';
 
     const dateStr = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Recent';
     const email = escapeHtml(u.email || 'No email');
@@ -255,55 +288,65 @@ function renderUsersTable() {
           <div class="user-email-cell">
             <span class="user-email-text-full">${email}</span>
             <button type="button" class="btn-copy-mini btn-action-copy" data-copy="${email}" title="Copy Email">Copy</button>
-            ${credits <= 0 ? `<a href="https://wa.me/${ADMIN_CONFIG.whatsappNumber}?text=Hi+${encodeURIComponent(u.email || '')}+your+credits+are+ready" target="_blank" rel="noopener noreferrer" class="btn-copy-mini" title="Send WhatsApp Message">WhatsApp</a>` : ''}
+            ${credits <= 0 ? `<a href="https://wa.me/${ADMIN_CONFIG.whatsappNumber}?text=Hi+${encodeURIComponent(u.email || '')}+your+karaoke+tokens+are+ready" target="_blank" rel="noopener noreferrer" class="btn-copy-mini" title="Send WhatsApp Message">WhatsApp</a>` : ''}
           </div>
         </td>
         <td>
           <div class="remaining-credits-cell">
             <span class="credit-badge ${badgeClass}" id="badge-rem-${rowId}">
-              ${credits} ${credits === 1 ? 'Song' : 'Songs'}
+              ${credits} ${credits === 1 ? 'Token' : 'Tokens'}
             </span>
-            <span class="sub-label">Remaining</span>
+            <span class="sub-label">Current Balance</span>
           </div>
         </td>
         <td>
           <div class="adding-credits-cell">
             <div class="adding-controls-row">
               <div class="adding-input-wrap">
-                <span class="adding-plus">+</span>
                 <input type="number" 
-                       id="add-input-${rowId}" 
+                       id="adj-input-${rowId}" 
                        class="row-add-input" 
                        value="10" 
                        min="1" 
-                       max="1000" 
+                       max="10000" 
                        data-row-id="${rowId}"
                        data-credits="${credits}"
-                       title="Credits to add">
-                <span class="adding-unit">Songs</span>
+                       title="Token adjustment amount">
+                <span class="adding-unit">Tokens</span>
               </div>
               <div class="row-preset-chips" data-row-id="${rowId}" data-credits="${credits}">
-                <button type="button" class="btn-preset-chip" data-preset="5">+5</button>
-                <button type="button" class="btn-preset-chip active" data-preset="10">+10</button>
-                <button type="button" class="btn-preset-chip" data-preset="25">+25</button>
-                <button type="button" class="btn-preset-chip" data-preset="50">+50</button>
+                <button type="button" class="btn-preset-chip" data-preset="2">2</button>
+                <button type="button" class="btn-preset-chip" data-preset="5">5</button>
+                <button type="button" class="btn-preset-chip active" data-preset="10">10</button>
+                <button type="button" class="btn-preset-chip" data-preset="20">20</button>
               </div>
             </div>
             <div class="row-calc-preview" id="row-calc-${rowId}">
-              <span class="calc-arrow">→</span> Total after approval: <strong class="text-success">${credits + 10} Songs</strong>
+              <span class="calc-arrow">→</span> +Add: <strong class="text-success">${credits + 10}</strong> &nbsp;|&nbsp; -Remove: <strong class="text-danger">${Math.max(0, credits - 10)}</strong>
             </div>
           </div>
         </td>
         <td>
-          <div class="approve-action-cell">
+          <div class="action-buttons-cell" style="display: flex; gap: 8px; align-items: center;">
             <button type="button" 
-                    class="btn-approve-row btn-action-approve" 
-                    id="btn-approve-${rowId}" 
+                    class="btn-row-add btn-action-row-add" 
+                    id="btn-add-${rowId}" 
                     data-user-id="${safeUserId}" 
                     data-email="${email}" 
                     data-row-id="${rowId}" 
-                    data-credits="${credits}">
-              Approve (<span id="btn-amt-${rowId}">+10</span>)
+                    data-credits="${credits}"
+                    title="Add tokens to user account">
+              + Add (<span id="btn-add-val-${rowId}">+10</span>)
+            </button>
+            <button type="button" 
+                    class="btn-row-remove btn-action-row-remove" 
+                    id="btn-remove-${rowId}" 
+                    data-user-id="${safeUserId}" 
+                    data-email="${email}" 
+                    data-row-id="${rowId}" 
+                    data-credits="${credits}"
+                    title="Remove tokens from user account">
+              - Remove (<span id="btn-rem-val-${rowId}">-10</span>)
             </button>
           </div>
         </td>
@@ -311,190 +354,176 @@ function renderUsersTable() {
           ${escapeHtml(dateStr)}
         </td>
         <td>
-          <button type="button" class="btn-reset-zero btn-action-reset" data-user-id="${safeUserId}" data-email="${email}" title="Reset credits to 0">Reset (0)</button>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button type="button" 
+                    class="btn-row-set btn-action-set" 
+                    data-user-id="${safeUserId}" 
+                    data-email="${email}" 
+                    data-credits="${credits}"
+                    title="Set exact token balance">
+              Set...
+            </button>
+            <button type="button" 
+                    class="btn-reset-zero btn-action-reset" 
+                    data-user-id="${safeUserId}" 
+                    data-email="${email}" 
+                    data-credits="${credits}"
+                    title="Reset tokens to 0">
+              Reset (0)
+            </button>
+          </div>
         </td>
       </tr>
     `;
   }).join('');
 }
 
-// Modify credits securely
-async function setCredits(userId, email, newCredits) {
-  const num = Math.max(0, parseInt(newCredits, 10));
+// Modify tokens securely via Server Admin Endpoint (Add, Remove, or Set)
+async function updateCredits({ email, amount, mode = 'add', userId = null, btn = null }) {
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    showToast('Customer email is required.', 'error');
+    return false;
+  }
+
+  const num = Math.abs(parseInt(amount, 10));
+  if (isNaN(num) || (num <= 0 && mode !== 'set')) {
+    showToast('Please enter a valid positive token amount.', 'warning');
+    return false;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.prevHtml = btn.innerHTML;
+    btn.innerHTML = '⏳ Updating...';
+  }
 
   try {
-    let success = false;
+    const res = await fetch('/api/admin/update-credits', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        email: cleanEmail,
+        amount: num,
+        mode
+      })
+    });
 
-    // 1. Try secure Postgres RPC function first
-    if (supabaseAdmin) {
-      try {
-        const rpcRes = await supabaseAdmin.rpc('admin_update_credits', {
-          target_email: email,
-          new_credits: num
-        });
-        if (!rpcRes.error && rpcRes.data?.success) {
-          success = true;
-        }
-      } catch (_) {}
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || data.error || 'Server rejected token update');
     }
 
-    // 2. Direct table update fallback
-    if (!success && supabaseAdmin) {
-      const { error } = await supabaseAdmin
-        .from('profiles')
-        .update({ credits: num })
-        .match(userId ? { id: userId } : { email: email });
-
-      if (!error) success = true;
-    }
-
-    if (success) {
-      showToast(`Set ${num} credits for ${email}`, 'success');
-      const target = allUsers.find(u => (userId && u.id === userId) || u.email === email);
-      if (target) {
-        target.credits = num;
-      }
-      updateMetrics(allUsers);
-      renderUsersTable();
+    const newCredits = data.credits;
+    let toastMsg = '';
+    if (mode === 'add') {
+      toastMsg = `✓ Added ${num} tokens to ${cleanEmail}. (New Balance: ${newCredits})`;
+    } else if (mode === 'remove') {
+      toastMsg = `✓ Removed ${num} tokens from ${cleanEmail}. (New Balance: ${newCredits})`;
     } else {
-      showToast(`Could not update credits. Please verify Supabase permissions.`, 'error');
+      toastMsg = `✓ Set token balance for ${cleanEmail} to ${newCredits}.`;
     }
+    showToast(toastMsg, 'success');
+
+    // Update local user state immediately
+    const user = allUsers.find(u => (userId && u.id === userId) || (u.email && u.email.toLowerCase() === cleanEmail));
+    if (user) {
+      user.credits = newCredits;
+    } else {
+      allUsers.unshift({
+        id: userId || 'new',
+        email: cleanEmail,
+        credits: newCredits,
+        created_at: new Date().toISOString()
+      });
+    }
+
+    updateMetrics(allUsers);
+    renderUsersTable();
+    populateEmailDatalist();
+    updateTopupCalcPreview();
+    return true;
   } catch (err) {
-    console.error('[Admin] Update credits error:', err);
+    console.error('[Admin] Update tokens error:', err);
     showToast(`Error: ${err.message}`, 'error');
-  }
-}
-
-// Approval State
-let pendingApproval = null;
-
-function openApprovalModal({ userId, email, remaining, added, newTotal, isReset = false }) {
-  pendingApproval = { userId, email, newTotal };
-
-  const modal = document.getElementById('credit-approval-modal');
-  const title = document.getElementById('approve-modal-title');
-  const icon = document.getElementById('approve-icon');
-  const emailEl = document.getElementById('approve-modal-email');
-  const remEl = document.getElementById('approve-remaining-val');
-  const addEl = document.getElementById('approve-added-val');
-  const addLabel = document.getElementById('approve-added-label');
-  const mathSymbol = document.getElementById('approve-math-symbol');
-  const totEl = document.getElementById('approve-total-val');
-  const confirmBtn = document.getElementById('btn-confirm-approval');
-
-  if (emailEl) emailEl.textContent = email;
-  if (remEl) remEl.textContent = remaining;
-  if (totEl) totEl.textContent = newTotal;
-
-  if (isReset) {
-    if (title) title.textContent = 'Confirm Reset to 0 Credits';
-    if (addLabel) addLabel.textContent = 'Resetting';
-    if (addEl) addEl.textContent = 'To 0';
-    if (mathSymbol) mathSymbol.textContent = '→';
-    if (confirmBtn) {
-      confirmBtn.textContent = 'Confirm Reset to 0';
-      confirmBtn.className = 'btn-approve-credit danger';
-    }
-  } else {
-    if (title) title.textContent = 'Confirm Credit Update';
-    if (addLabel) addLabel.textContent = 'Added Credits';
-    if (addEl) addEl.textContent = `+${added}`;
-    if (mathSymbol) mathSymbol.textContent = '+';
-    if (confirmBtn) {
-      confirmBtn.textContent = 'Approve & Add Credits';
-      confirmBtn.className = 'btn-approve-credit';
+    return false;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (btn.dataset.prevHtml) {
+        btn.innerHTML = btn.dataset.prevHtml;
+      }
     }
   }
-
-  if (modal) modal.style.display = 'flex';
 }
 
-function closeApprovalModal() {
-  const modal = document.getElementById('credit-approval-modal');
-  if (modal) modal.style.display = 'none';
-  pendingApproval = null;
-}
-
-// Inline Row Credit & Approval Actions
+// Inline Row Amount Change
 function onRowAmountChange(rowId, currentCredits) {
-  const input = document.getElementById(`add-input-${rowId}`);
+  const input = document.getElementById(`adj-input-${rowId}`);
   const calcEl = document.getElementById(`row-calc-${rowId}`);
-  const btnAmt = document.getElementById(`btn-amt-${rowId}`);
+  const btnAddVal = document.getElementById(`btn-add-val-${rowId}`);
+  const btnRemVal = document.getElementById(`btn-rem-val-${rowId}`);
   if (!input) return;
 
   const raw = parseInt(input.value, 10);
-  const safeAdded = isNaN(raw) || raw < 0 ? 0 : raw;
-  const newTotal = (currentCredits || 0) + safeAdded;
+  const safeVal = isNaN(raw) || raw < 1 ? 1 : raw;
+  const newAdd = (currentCredits || 0) + safeVal;
+  const newRem = Math.max(0, (currentCredits || 0) - safeVal);
 
   if (calcEl) {
-    calcEl.innerHTML = `<span class="calc-arrow">→</span> Total after approval: <strong class="text-success">${newTotal} Songs</strong>`;
+    calcEl.innerHTML = `<span class="calc-arrow">→</span> +Add: <strong class="text-success">${newAdd}</strong> &nbsp;|&nbsp; -Remove: <strong class="text-danger">${newRem}</strong>`;
   }
-  if (btnAmt) {
-    btnAmt.textContent = `+${safeAdded}`;
-  }
+  if (btnAddVal) btnAddVal.textContent = `+${safeVal}`;
+  if (btnRemVal) btnRemVal.textContent = `-${safeVal}`;
 
   const row = input.closest('tr');
   if (row) {
     row.querySelectorAll('.btn-preset-chip').forEach(btn => {
       const val = parseInt(btn.getAttribute('data-preset'), 10);
-      btn.classList.toggle('active', val === safeAdded);
+      btn.classList.toggle('active', val === safeVal);
     });
   }
 }
 
-async function approveRowCredits(userId, email, rowId, currentCredits) {
-  const input = document.getElementById(`add-input-${rowId}`);
-  const btn = document.getElementById(`btn-approve-${rowId}`);
-  const raw = input ? parseInt(input.value, 10) : 10;
-  const added = isNaN(raw) || raw <= 0 ? 0 : raw;
-
-  if (added <= 0) {
-    showToast('Please specify a positive number of credits to add.', 'warning');
-    if (input) input.focus();
-    return;
-  }
-
-  const remaining = currentCredits || 0;
-  const newTotal = remaining + added;
-
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ Approving...';
-  }
-
-  try {
-    await setCredits(userId, email, newTotal);
-  } catch (err) {
-    console.error('Row approval error:', err);
-    showToast(`Approval failed: ${err.message}`, 'error');
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      const btnAmt = document.getElementById(`btn-amt-${rowId}`);
-      if (btnAmt) btnAmt.textContent = `+${added}`;
-    }
-  }
-}
-
-// Live calculation preview in quick top-up
+// Live calculation preview in quick top-up banner
 function updateTopupCalcPreview() {
   const emailInput = document.getElementById('direct-email-input');
   const amountInput = document.getElementById('direct-amount-input');
   const previewRem = document.getElementById('calc-preview-remaining');
-  const previewAdded = document.getElementById('calc-preview-added');
+  const previewAction = document.getElementById('calc-preview-added');
   const previewTotal = document.getElementById('calc-preview-total');
+  const submitBtn = document.getElementById('btn-grant-submit');
 
   const email = (emailInput?.value || '').trim().toLowerCase();
   const rawAmt = parseInt(amountInput?.value || '0', 10);
-  const added = isNaN(rawAmt) || rawAmt < 0 ? 0 : rawAmt;
+  const amt = isNaN(rawAmt) || rawAmt < 0 ? 0 : rawAmt;
 
   const existing = allUsers.find(u => (u.email || '').toLowerCase() === email);
-  const remaining = existing ? (existing.credits || 0) : 0;
-  const total = remaining + added;
+  const current = existing ? (existing.credits || 0) : 0;
+  
+  let total = current;
+  let actionText = '';
+  let btnLabel = '';
 
-  if (previewRem) previewRem.textContent = existing ? `${remaining} Songs` : '0 (New)';
-  if (previewAdded) previewAdded.textContent = `+${added}`;
-  if (previewTotal) previewTotal.textContent = `${total} Songs`;
+  if (topupMode === 'add') {
+    total = current + amt;
+    actionText = `+${amt} Tokens`;
+    btnLabel = `+ Add ${amt} Tokens →`;
+  } else if (topupMode === 'remove') {
+    total = Math.max(0, current - amt);
+    actionText = `-${amt} Tokens`;
+    btnLabel = `- Remove ${amt} Tokens →`;
+  } else {
+    total = Math.max(0, amt);
+    actionText = `= ${amt} Tokens`;
+    btnLabel = `Set to ${amt} Tokens →`;
+  }
+
+  if (previewRem) previewRem.textContent = existing ? `${current} Tokens` : (email ? '0 (New)' : '--');
+  if (previewAction) previewAction.textContent = actionText;
+  if (previewTotal) previewTotal.textContent = `${total} Tokens`;
+  if (submitBtn) submitBtn.textContent = btnLabel;
 }
 
 // Toast notification helper
@@ -505,7 +534,7 @@ function showToast(msg, type = 'success') {
   toast.className = `admin-toast show ${type}`;
   setTimeout(() => {
     toast.className = 'admin-toast';
-  }, 3500);
+  }, 4000);
 }
 
 // XSS Escape Helper
@@ -519,7 +548,7 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Global Event Delegation & Setup
+// Global Event Setup
 window.addEventListener('DOMContentLoaded', () => {
   initSupabase();
 
@@ -581,24 +610,18 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Successful server authentication
       if (errEl) errEl.style.display = 'none';
       if (data.token) {
         sessionStorage.setItem('karaoke_admin_token', data.token);
       }
 
-      // Securely bridge to Supabase session for admin controls
+      // Securely bridge to Supabase session if returned
       if (supabaseAdmin) {
         try {
           if (data.supabaseSession?.access_token && data.supabaseSession?.refresh_token) {
             await supabaseAdmin.auth.setSession({
               access_token: data.supabaseSession.access_token,
               refresh_token: data.supabaseSession.refresh_token
-            });
-          } else {
-            await supabaseAdmin.auth.signInWithPassword({
-              email: data.email || 'feroznadafm@gmail.com',
-              password
             });
           }
         } catch (_) {}
@@ -644,11 +667,69 @@ window.addEventListener('DOMContentLoaded', () => {
     showToast('Refreshing user list...', 'success');
   });
 
-  // Event delegation on table body (Safe from XSS)
+  // Top-up Mode Switching (+ Add, - Remove, = Set)
+  document.querySelectorAll('.btn-mode').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      topupMode = btn.getAttribute('data-mode') || 'add';
+      updateTopupCalcPreview();
+    });
+  });
+
+  // Top-up Preset Chips (2, 6, 10, 20, 50)
+  document.querySelectorAll('#direct-amount-presets .btn-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#direct-amount-presets .btn-preset').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const val = btn.getAttribute('data-amount');
+      const amountInput = document.getElementById('direct-amount-input');
+      if (amountInput) amountInput.value = val;
+      updateTopupCalcPreview();
+    });
+  });
+
+  // Live calculation preview listeners in quick top-up
+  document.getElementById('direct-email-input')?.addEventListener('input', updateTopupCalcPreview);
+  document.getElementById('direct-amount-input')?.addEventListener('input', updateTopupCalcPreview);
+
+  // Direct Top-up Form Submission
+  document.getElementById('form-direct-topup')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('direct-email-input')?.value.trim();
+    const amount = parseInt(document.getElementById('direct-amount-input')?.value || '0', 10);
+    const submitBtn = document.getElementById('btn-grant-submit');
+
+    if (!email) {
+      showToast('Please enter customer email.', 'warning');
+      document.getElementById('direct-email-input')?.focus();
+      return;
+    }
+
+    if (isNaN(amount) || (amount <= 0 && topupMode !== 'set')) {
+      showToast('Please enter a valid token amount.', 'warning');
+      document.getElementById('direct-amount-input')?.focus();
+      return;
+    }
+
+    const success = await updateCredits({
+      email,
+      amount,
+      mode: topupMode,
+      btn: submitBtn
+    });
+
+    if (success) {
+      document.getElementById('direct-email-input').value = '';
+      updateTopupCalcPreview();
+    }
+  });
+
+  // Table Body Event Delegation (Safe from XSS, handles dynamic rows)
   const tbody = document.getElementById('users-table-body');
   if (tbody) {
-    tbody.addEventListener('click', (e) => {
-      // Copy email button
+    tbody.addEventListener('click', async (e) => {
+      // 1. Copy email button
       const copyBtn = e.target.closest('.btn-action-copy');
       if (copyBtn) {
         const text = copyBtn.getAttribute('data-copy');
@@ -659,14 +740,14 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Preset chips in table row
+      // 2. Preset chips in table row
       const presetBtn = e.target.closest('.btn-preset-chip');
       if (presetBtn) {
         const chipsContainer = presetBtn.closest('.row-preset-chips');
         const rowId = chipsContainer?.getAttribute('data-row-id');
         const currentCredits = parseInt(chipsContainer?.getAttribute('data-credits') || '0', 10);
         const amount = parseInt(presetBtn.getAttribute('data-preset') || '10', 10);
-        const input = document.getElementById(`add-input-${rowId}`);
+        const input = document.getElementById(`adj-input-${rowId}`);
         if (input) {
           input.value = amount;
           onRowAmountChange(rowId, currentCredits);
@@ -674,29 +755,99 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Approve row button
-      const approveBtn = e.target.closest('.btn-action-approve');
-      if (approveBtn) {
-        const userId = approveBtn.getAttribute('data-user-id');
-        const email = approveBtn.getAttribute('data-email');
-        const rowId = approveBtn.getAttribute('data-row-id');
-        const currentCredits = parseInt(approveBtn.getAttribute('data-credits') || '0', 10);
-        approveRowCredits(userId, email, rowId, currentCredits);
+      // 3. Row + Add button
+      const addBtn = e.target.closest('.btn-action-row-add');
+      if (addBtn) {
+        const userId = addBtn.getAttribute('data-user-id');
+        const email = addBtn.getAttribute('data-email');
+        const rowId = addBtn.getAttribute('data-row-id');
+        const input = document.getElementById(`adj-input-${rowId}`);
+        const raw = input ? parseInt(input.value, 10) : 10;
+        const amount = isNaN(raw) || raw < 1 ? 1 : raw;
+
+        await updateCredits({
+          email,
+          amount,
+          mode: 'add',
+          userId,
+          btn: addBtn
+        });
         return;
       }
 
-      // Reset row button
+      // 4. Row - Remove button
+      const remBtn = e.target.closest('.btn-action-row-remove');
+      if (remBtn) {
+        const userId = remBtn.getAttribute('data-user-id');
+        const email = remBtn.getAttribute('data-email');
+        const rowId = remBtn.getAttribute('data-row-id');
+        const currentCredits = parseInt(remBtn.getAttribute('data-credits') || '0', 10);
+        const input = document.getElementById(`adj-input-${rowId}`);
+        const raw = input ? parseInt(input.value, 10) : 10;
+        const amount = isNaN(raw) || raw < 1 ? 1 : raw;
+
+        if (currentCredits <= 0) {
+          showToast(`Customer already has 0 tokens.`, 'warning');
+          return;
+        }
+
+        await updateCredits({
+          email,
+          amount,
+          mode: 'remove',
+          userId,
+          btn: remBtn
+        });
+        return;
+      }
+
+      // 5. Row Set... button (Prompt for exact token balance)
+      const setBtn = e.target.closest('.btn-action-set');
+      if (setBtn) {
+        const userId = setBtn.getAttribute('data-user-id');
+        const email = setBtn.getAttribute('data-email');
+        const currentCredits = parseInt(setBtn.getAttribute('data-credits') || '0', 10);
+
+        const promptVal = window.prompt(`Set exact token balance for ${email}:`, currentCredits);
+        if (promptVal === null) return; // User cancelled
+
+        const num = parseInt(promptVal.trim(), 10);
+        if (isNaN(num) || num < 0) {
+          showToast('Please enter a valid non-negative number.', 'warning');
+          return;
+        }
+
+        await updateCredits({
+          email,
+          amount: num,
+          mode: 'set',
+          userId,
+          btn: setBtn
+        });
+        return;
+      }
+
+      // 6. Row Reset (0) button
       const resetBtn = e.target.closest('.btn-action-reset');
       if (resetBtn) {
         const userId = resetBtn.getAttribute('data-user-id');
         const email = resetBtn.getAttribute('data-email');
-        const user = allUsers.find(u => (userId && u.id === userId) || u.email === email);
-        const remaining = user ? (user.credits || 0) : 0;
-        openApprovalModal({ userId, email, remaining, added: 0, newTotal: 0, isReset: true });
+
+        const confirmed = window.confirm(`Are you sure you want to reset tokens for ${email} to 0?`);
+        if (!confirmed) return;
+
+        await updateCredits({
+          email,
+          amount: 0,
+          mode: 'set',
+          userId,
+          btn: resetBtn
+        });
         return;
       }
     });
 
+    // Input changes on token adjustment field
     tbody.addEventListener('input', (e) => {
       const input = e.target.closest('.row-add-input');
       if (input) {
@@ -706,83 +857,19 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // Enter key triggers + Add
     tbody.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const input = e.target.closest('.row-add-input');
         if (input) {
           e.preventDefault();
           const tr = input.closest('tr');
-          const userId = tr?.getAttribute('data-user-id');
-          const email = tr?.getAttribute('data-email');
-          const rowId = input.getAttribute('data-row-id');
-          const currentCredits = parseInt(input.getAttribute('data-credits') || '0', 10);
-          approveRowCredits(userId, email, rowId, currentCredits);
+          const addBtn = tr?.querySelector('.btn-action-row-add');
+          if (addBtn) addBtn.click();
         }
       }
     });
   }
-
-  // Live calculation preview listeners in quick top-up
-  document.getElementById('direct-email-input')?.addEventListener('input', updateTopupCalcPreview);
-  document.getElementById('direct-amount-input')?.addEventListener('input', updateTopupCalcPreview);
-
-  // Direct Top-up Form
-  document.getElementById('form-direct-topup')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const email = document.getElementById('direct-email-input')?.value.trim();
-    const amount = parseInt(document.getElementById('direct-amount-input')?.value || '0', 10);
-    if (!email || isNaN(amount) || amount <= 0) return;
-
-    const existing = allUsers.find(u => (u.email || '').toLowerCase() === email.toLowerCase());
-    const remaining = existing ? (existing.credits || 0) : 0;
-    const newTotal = remaining + amount;
-
-    openApprovalModal({
-      userId: existing ? existing.id : null,
-      email,
-      remaining,
-      added: amount,
-      newTotal,
-      isReset: false
-    });
-  });
-
-  // Direct Top-up Presets (+5, +10, +20, +50)
-  document.querySelectorAll('.btn-preset').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const val = btn.getAttribute('data-amount');
-      const amountInput = document.getElementById('direct-amount-input');
-      if (amountInput) amountInput.value = val;
-      updateTopupCalcPreview();
-    });
-  });
-
-  // Approval Modal Confirm
-  document.getElementById('btn-confirm-approval')?.addEventListener('click', async () => {
-    if (!pendingApproval) return;
-    const { userId, email, newTotal } = pendingApproval;
-    const btn = document.getElementById('btn-confirm-approval');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Approving & Syncing...';
-    }
-
-    await setCredits(userId, email, newTotal);
-
-    if (btn) btn.disabled = false;
-    closeApprovalModal();
-    const emailInput = document.getElementById('direct-email-input');
-    if (emailInput) emailInput.value = '';
-    updateTopupCalcPreview();
-  });
-
-  // Approval Modal Cancel
-  document.getElementById('btn-cancel-approval')?.addEventListener('click', closeApprovalModal);
-  document.getElementById('credit-approval-modal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'credit-approval-modal') closeApprovalModal();
-  });
 
   // Search input live filter
   const searchInput = document.getElementById('user-search-input');
