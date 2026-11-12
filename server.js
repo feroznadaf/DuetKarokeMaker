@@ -161,11 +161,11 @@ function setSecurityHeaders(res, req) {
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: data:",
-    "connect-src 'self' https://*.supabase.co https://*.cashfree.com https://lrclib.net https://www.youtube.com https://generativelanguage.googleapis.com blob:",
-    "frame-src 'self' https://*.cashfree.com",
+    "connect-src 'self' https://*.supabase.co https://*.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://lrclib.net https://www.youtube.com https://generativelanguage.googleapis.com blob:",
+    "frame-src 'self' https://*.cashfree.com https://api.cashfree.com https://payments.cashfree.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
-    "form-action 'self'"
+    "form-action 'self' https://*.cashfree.com https://api.cashfree.com https://payments.cashfree.com"
   ].join('; ');
 
   res.setHeader('Content-Security-Policy', csp);
