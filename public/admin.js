@@ -58,6 +58,13 @@ function getAuthHeaders() {
 
 // Check session with server
 async function checkAdminSession() {
+  const token = sessionStorage.getItem('karaoke_admin_token');
+  if (!token) {
+    sessionStorage.removeItem('karaoke_admin_unlocked');
+    showAuthGate();
+    return false;
+  }
+
   try {
     const res = await fetch('/api/admin/session', {
       headers: getAuthHeaders()
@@ -70,6 +77,9 @@ async function checkAdminSession() {
       }
     }
   } catch (_) {}
+
+  sessionStorage.removeItem('karaoke_admin_token');
+  sessionStorage.removeItem('karaoke_admin_unlocked');
   showAuthGate();
   return false;
 }
@@ -138,6 +148,12 @@ async function loadUsers() {
         if (data.success && Array.isArray(data.users)) {
           users = data.users;
         }
+      } else if (res.status === 401) {
+        sessionStorage.removeItem('karaoke_admin_token');
+        sessionStorage.removeItem('karaoke_admin_unlocked');
+        showToast('Admin session expired. Please sign in again.', 'warning');
+        showAuthGate();
+        return;
       } else {
         const errData = await res.json().catch(() => ({}));
         fetchError = errData.message || `Server returned HTTP ${res.status}`;
@@ -408,6 +424,14 @@ async function updateCredits({ email, amount, mode = 'add', userId = null, btn =
         mode
       })
     });
+
+    if (res.status === 401) {
+      sessionStorage.removeItem('karaoke_admin_token');
+      sessionStorage.removeItem('karaoke_admin_unlocked');
+      showToast('Admin session expired. Please sign in again.', 'warning');
+      showAuthGate();
+      return;
+    }
 
     const data = await res.json();
 
