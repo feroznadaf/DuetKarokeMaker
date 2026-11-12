@@ -8,8 +8,8 @@
  */
 
 const SUPABASE_CONFIG = {
-  url: 'https://odvgmniswfpahwkqwtcw.supabase.co',
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kdmdtbmlzd2ZwYWh3a3F3dGN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1MzE4MTksImV4cCI6MjEwNzEwNzgxOX0.dl3gytRtsokArFxN_VH2nMABfAF35757ghOnm-dYESs',
+  url: 'https://gezplzqucotwwjlvnrkk.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlenBsenF1Y290d3dqbHZucmtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNjc4MDEsImV4cCI6MjEwNTg0MzgwMX0.xS4YnlrDCR5SQrZ8VJfWHlHNZa_3fnSmPxoTaIRfpgQ',
   whatsappNumber: '919743247790',
   upiId: 'feroznadaf13008@ybl',
   payeeName: 'AyeshaTechStudio',
@@ -841,7 +841,7 @@ async function handleGateSignUp(e) {
 function openKeySetupModal(reason = '') {
   const key = prompt(
     (reason ? reason + '\n\n' : '') +
-    'Enter your Supabase Anon Public Key (from https://supabase.com/dashboard/project/odvgmniswfpahwkqwtcw/settings/api):'
+    'Enter your Supabase Anon Public Key (from https://supabase.com/dashboard/project/gezplzqucotwwjlvnrkk/settings/api):'
   );
   if (key && key.trim()) {
     localStorage.setItem('supabase_anon_key', key.trim());
