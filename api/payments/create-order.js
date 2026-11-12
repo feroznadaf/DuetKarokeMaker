@@ -98,7 +98,7 @@ export default async function handler(req, res) {
     const rawOrigin = req.headers.origin || '';
     const safeOrigin = (rawOrigin && rawOrigin.startsWith('https://'))
       ? rawOrigin
-      : (process.env.APP_BASE_URL || 'https://karokemaker.online');
+      : (process.env.APP_BASE_URL || 'https://www.karokemaker.online');
     const customerId = `cust_${crypto.createHash('md5').update(cleanEmail).digest('hex').substring(0, 16)}`;
 
     const body = {
