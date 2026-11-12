@@ -52,6 +52,7 @@ DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Enable all for users" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert own profile on signup" ON public.profiles;
 
 -- 3. STRICT READ POLICY: Users can ONLY read their own profile
 CREATE POLICY "Users can view own profile" 
