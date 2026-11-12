@@ -241,10 +241,6 @@ BEGIN
 END;
 $$;
 
-  RETURN COALESCE(v_result, '[]'::jsonb);
-END;
-$$;
-
 GRANT EXECUTE ON FUNCTION public.server_admin_get_users(TEXT) TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.server_admin_update_credits(
